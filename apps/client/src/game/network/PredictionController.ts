@@ -1,4 +1,5 @@
 import {
+  sanitizeInput,
   clonePlayerSim,
   copyPlayerSim,
   newStepResult,
@@ -60,6 +61,9 @@ export class PredictionController {
   offZ = 0;
   stats: PredictionStats = { reconciliations: 0, hardSnaps: 0, lastErrorM: 0, maxErrorM: 0, errSum: 0, errCount: 0, surfaceBreaks: 0 };
   lastAck = 0;
+  /** state after the most recent acknowledged input (comparison target for repeated acks) */
+  base: PlayerSim;
+  baseSeq = 0;
   private res = newStepResult();
 
   constructor(
@@ -68,6 +72,7 @@ export class PredictionController {
   ) {
     this.sim = clonePlayerSim(initial);
     this.prev = clonePlayerSim(initial);
+    this.base = clonePlayerSim(initial);
   }
 
   get unacked(): number {
@@ -82,12 +87,16 @@ export class PredictionController {
     this.epoch = epoch;
     this.offX = this.offY = this.offZ = 0;
     this.lastAck = ack;
+    this.base = clonePlayerSim(server);
+    this.baseSeq = ack;
     if (this.nextSeq <= ack) this.nextSeq = ack + 1;
   }
 
   /** Run one local tick from a freshly sampled input. Returns the step result for presentation (muzzle flash etc). */
   predict(input: Omit<InputFrame, 'seq'>): { frame: InputFrame; result: StepResult; before: PlayerSim } {
-    const frame: InputFrame = { ...input, seq: this.nextSeq++ };
+    // Predict from exactly what the server will simulate: same clamping / normalisation / yaw wrap.
+    const frame = sanitizeInput({ ...input, seq: this.nextSeq++ });
+    if (!frame) throw new Error('PredictionController: unusable input frame');
     copyPlayerSim(this.prev, this.sim);
     const before = clonePlayerSim(this.sim);
     stepPlayer(this.sim, frame, this.world, this.res);
@@ -114,37 +123,43 @@ export class PredictionController {
       this.stats.hardSnaps++;
       return { errorM: 0, reconciled: true, hard: true, reason: 'epoch', replayed: 0, surfaceChanged: false };
     }
+    if (ack < this.baseSeq) {
+      // stale snapshot (cannot happen on an ordered transport, harmless if it does)
+      return { errorM: 0, reconciled: false, hard: false, reason: '', replayed: 0, surfaceChanged: false };
+    }
     this.lastAck = ack;
-    // discard inputs older than the ack; keep the ack entry for comparison
-    while (this.history.length > 1 && this.history[1].seq <= ack) this.history.shift();
-    const entry = this.history[0] && this.history[0].seq === ack ? this.history[0] : undefined;
 
-    let err = 0;
-    let reason: ReconcileReport['reason'] = '';
-    if (entry) {
-      const m = this.mismatch(entry.after, server);
-      err = m.err;
-      reason = m.reason;
-    } else if (this.history.length > 0 && this.history[0].seq < ack) {
-      // ack is ahead of everything we kept (we were starved of history)
-      reason = 'no-history';
-      err = Math.hypot(this.sim.px - server.px, this.sim.py - server.py, this.sim.pz - server.pz);
-    } else if (this.history.length === 0) {
-      const m = this.mismatch(this.sim, server);
+    // locate the state we predicted for the acknowledged input, and discard everything up to it
+    let ref: PlayerSim | undefined;
+    if (ack === this.baseSeq) {
+      ref = this.base;
+    } else {
+      const idx = this.history.findIndex((e) => e.seq === ack);
+      if (idx >= 0) {
+        ref = this.history[idx].after;
+        this.base = this.history[idx].after;
+        this.baseSeq = ack;
+        this.history.splice(0, idx + 1);
+      }
+    }
+
+    let err: number;
+    let reason: ReconcileReport['reason'];
+    if (ref) {
+      const m = this.mismatch(ref, server);
       err = m.err;
       reason = m.reason;
     } else {
-      // history starts after ack + 1: no entry to compare, trust the server and replay
+      // the ack refers to an input we no longer hold (e.g. after a long stall): trust the server
       reason = 'no-history';
       err = Math.hypot(this.sim.px - server.px, this.sim.py - server.py, this.sim.pz - server.pz);
+      this.history = this.history.filter((e) => e.seq > ack);
+      this.baseSeq = ack;
     }
     this.stats.lastErrorM = err;
     this.stats.maxErrorM = Math.max(this.stats.maxErrorM, err);
     this.stats.errSum += err;
     this.stats.errCount++;
-
-    // drop the compared entry now that it is acknowledged
-    if (this.history.length && this.history[0].seq <= ack) this.history.shift();
 
     if (reason === '') {
       return { errorM: err, reconciled: false, hard: false, reason, replayed: 0, surfaceChanged: false };
@@ -155,9 +170,10 @@ export class PredictionController {
     const oldZ = this.sim.pz;
     const oldSurface = this.sim.surface;
     copyPlayerSim(this.sim, server);
+    this.base = clonePlayerSim(server);
+    this.baseSeq = ack;
     let replayed = 0;
     for (const e of this.history) {
-      if (e.seq <= ack) continue;
       copyPlayerSim(this.prev, this.sim);
       stepPlayer(this.sim, e.input, this.world, this.res);
       copyPlayerSim(e.after, this.sim);
