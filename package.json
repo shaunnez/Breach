@@ -1,0 +1,25 @@
+{
+  "name": "breach-hive",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BREACH//HIVE VS01 Combat Truth Slice",
+  "packageManager": "pnpm@10.28.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter @breach/server --filter @breach/client dev",
+    "build": "pnpm --filter @breach/shared build && pnpm --filter @breach/server build && pnpm --filter @breach/client build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "test": "pnpm -r test",
+    "e2e": "pnpm --filter @breach/gameplay-tests e2e",
+    "soak": "pnpm --filter @breach/gameplay-tests soak",
+    "start": "pnpm --filter @breach/server start"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "eslint": "^9.39.0",
+    "globals": "^16.0.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.46.0"
+  }
+}

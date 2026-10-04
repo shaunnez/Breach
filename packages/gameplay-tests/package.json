@@ -1,0 +1,24 @@
+{
+  "name": "@breach/gameplay-tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "soak": "tsx src/soak.ts",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@breach/client": "workspace:*",
+    "@breach/server": "workspace:*",
+    "@breach/shared": "workspace:*",
+    "colyseus.js": "^0.16.22"
+  },
+  "devDependencies": {
+    "@playwright/test": "~1.56.1",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.20.0",
+    "vitest": "^3.2.4"
+  }
+}
