@@ -199,6 +199,14 @@ export class AudioEngine {
     }
   }
 
+  chitter(pos: THREE.Vector3, listener?: THREE.Vector3): void {
+    const o = this.out(pos, listener);
+    if (!o) return;
+    const n = 3 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < n; i++) this.noise(0.02, 'bandpass', 4200 + Math.random() * 2400, 3, 0.45, o.node, i * (0.05 + Math.random() * 0.05));
+    this.tone('square', 2400 + Math.random() * 600, 1800, 0.05, 0.04, o.node, 0.02, 4000);
+  }
+
   jump(own: boolean): void {
     const o = this.out();
     if (!o || !own) return;

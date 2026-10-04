@@ -59,11 +59,11 @@ export class GameRuntime {
   readonly renderer: GameRenderer;
   readonly world = createTestCellA();
   private map = new MapView();
-  private input: InputController;
+  readonly input: InputController;
   private cam = new CameraRig();
-  private ctrl: PredictionController | null = null;
-  private assist = new SurfaceViewAssist();
-  private remotes = new Map<string, RemoteEntity>();
+  ctrl: PredictionController | null = null;
+  readonly assist = new SurfaceViewAssist();
+  readonly remotes = new Map<string, RemoteEntity>();
   private fx: Fx;
   readonly audio = new AudioEngine();
   private fpv: FirstPersonView;
@@ -72,8 +72,8 @@ export class GameRuntime {
   private lastFrame = performance.now();
   private acc = 0;
   private running = false;
-  private view: MatchView | null = null;
-  private me: PlayerSnapshot | null = null;
+  view: MatchView | null = null;
+  me: PlayerSnapshot | null = null;
   private localCls: PlayerClass = PlayerClass.Marine;
   private lastCls = -1;
   private hitAt = 0;
@@ -83,7 +83,7 @@ export class GameRuntime {
   private killId = 0;
   private lastHudAt = 0;
   private reconWindow: number[] = [];
-  private lastShotText = '—';
+  lastShotText = '—';
   private rays: RayRec[] = [];
   private biteViz: { at: number; a: THREE.Vector3; b: THREE.Vector3 }[] = [];
   readonly toggles: Record<DebugToggle, boolean> = { colliders: false, hurtVolumes: false, hitRays: false, biteSweep: false, surfaceProbes: false, traversalProbes: false, spawnVolumes: false, interpGhosts: false };
@@ -104,7 +104,7 @@ export class GameRuntime {
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly net: GameNetClient,
+    readonly net: GameNetClient,
     private readonly dev: boolean,
   ) {
     this.renderer = new GameRenderer(canvas);
@@ -180,6 +180,10 @@ export class GameRuntime {
       if (this.dev) setState((s) => ({ debug: s.debug ? null : this.debugState() }));
     }
     if (code === 'KeyM') this.audio.toggleMute();
+    if ((code === 'Digit1' || code === 'Digit2') && this.me && !this.me.alive && view_isPlaying(this.view)) {
+      this.net.setClass(code === 'Digit1' ? 0 : 1);
+      this.notice(`Next spawn: ${code === 'Digit1' ? 'Expedition Marine' : 'Bloom Ripper'} (max 2 per side)`);
+    }
   }
 
   private notice(text: string): void {
@@ -504,6 +508,7 @@ export class GameRuntime {
         continue;
       }
       r.apply(st, snap, dt);
+      this.remoteAudio(r, st, snap, dt, now);
       void showGhosts;
     }
 
@@ -511,6 +516,26 @@ export class GameRuntime {
     this.audio.updateListener(cam);
     this.drawDebug(now);
     this.renderer.render();
+  }
+
+  /** Positional footsteps / claw scrapes / idle chitter for other players: you should often hear a Ripper before you see it. */
+  private remoteAudio(r: RemoteEntity, st: { px: number; py: number; pz: number; surface: SurfaceState }, snap: PlayerSnapshot, dt: number, now: number): void {
+    const cam = this.renderer.camera.position;
+    const pos = new THREE.Vector3(st.px, st.py, st.pz);
+    const d = pos.distanceTo(cam);
+    if (d > 40) return;
+    if (st.surface !== SurfaceState.Air && r.speed > 1.5) {
+      r.stepDist += r.speed * dt;
+      const marine = snap.sim.cls === PlayerClass.Marine;
+      const stride = marine ? (snap.sim.sprinting ? 2.4 : 1.9) : 1.25;
+      if (r.stepDist > stride) {
+        r.stepDist = 0;
+        this.audio.step(marine, st.surface !== SurfaceState.Ground, Math.min(1, r.speed / 8), pos, cam);
+      }
+    } else if (snap.sim.cls === PlayerClass.Ripper && d < 14 && now > r.nextChitterAt) {
+      r.nextChitterAt = now + 2200 + Math.random() * 3200;
+      this.audio.chitter(pos, cam);
+    }
   }
 
   // ---- debug ------------------------------------------------------------------------------------

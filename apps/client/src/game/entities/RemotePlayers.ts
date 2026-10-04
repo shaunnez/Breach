@@ -26,6 +26,8 @@ export class RemoteEntity {
   private prevPos = new THREE.Vector3();
   speed = 0;
   deathT = 0;
+  stepDist = 0;
+  nextChitterAt = 0;
 
   constructor(
     readonly id: string,
