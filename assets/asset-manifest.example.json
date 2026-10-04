@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "coordinateSystem": {
+    "units": "metres",
+    "up": "+Y",
+    "forward": "-Z"
+  },
+  "assets": [
+    {
+      "id": "CHR_Marine_A",
+      "type": "character",
+      "faction": "expedition",
+      "status": "concept-approved",
+      "source": "reference-image-to-meshy-to-blender",
+      "output": "/assets/characters/marine/CHR_Marine_A.glb",
+      "triangleBudgetLod0": 30000,
+      "textureBudget": "2K primary set",
+      "collision": "runtime player capsule",
+      "animations": ["idle", "run", "jump", "land", "rifle_fire", "reload", "death"]
+    },
+    {
+      "id": "CHR_Ripper_A",
+      "type": "character",
+      "faction": "bloom",
+      "status": "concept-approved",
+      "source": "reference-image-to-meshy-to-blender",
+      "output": "/assets/characters/ripper/CHR_Ripper_A.glb",
+      "triangleBudgetLod0": 35000,
+      "textureBudget": "2K primary set",
+      "collision": "runtime oriented capsule",
+      "animations": ["idle", "surface_run", "leap", "land", "bite", "hit", "death"]
+    },
+    {
+      "id": "WPN_PulseRifle_A",
+      "type": "weapon",
+      "faction": "expedition",
+      "status": "concept-approved",
+      "output": "/assets/weapons/pulse-rifle/WPN_PulseRifle_A.glb",
+      "triangleBudgetLod0": 18000,
+      "textureBudget": "2K hero set",
+      "sockets": ["SOCKET_Muzzle"]
+    },
+    {
+      "id": "ENV_RefineryKit_A",
+      "type": "environment-kit",
+      "faction": "neutral",
+      "status": "needed",
+      "output": "/assets/environment/refinery/",
+      "requirements": [
+        "4m wall module",
+        "2m wall module",
+        "industrial floor",
+        "ceiling panel",
+        "2m doorway",
+        "pipe set",
+        "cable tray",
+        "vent 1.05m",
+        "crate small",
+        "crate medium",
+        "resource well placeholder"
+      ],
+      "textureStrategy": "shared trim sheets and atlases"
+    },
+    {
+      "id": "BIO_BiomassKit_A",
+      "type": "environment-kit",
+      "faction": "bloom",
+      "status": "needed-for-art-pass",
+      "output": "/assets/environment/biomass/",
+      "requirements": ["floor patch", "wall spread", "tendril", "organic doorway growth"],
+      "textureStrategy": "shared 1K/2K atlas"
+    }
+  ]
+}
