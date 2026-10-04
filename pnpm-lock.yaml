@@ -109,13 +109,31 @@ importers:
       '@breach/shared':
         specifier: workspace:*
         version: link:../shared
+      '@colyseus/core':
+        specifier: ^0.16.26
+        version: 0.16.26(@colyseus/schema@3.0.76)(@pm2/io@6.1.0)
+      '@colyseus/schema':
+        specifier: ^3.0.76
+        version: 3.0.76
+      '@colyseus/ws-transport':
+        specifier: ^0.16.5
+        version: 0.16.5(@colyseus/core@0.16.26(@colyseus/schema@3.0.76)(@pm2/io@6.1.0))
       colyseus.js:
         specifier: ^0.16.22
         version: 0.16.22
+      express:
+        specifier: ^4.21.2
+        version: 4.22.3
+      three:
+        specifier: ^0.180.0
+        version: 0.180.0
     devDependencies:
       '@playwright/test':
         specifier: ~1.56.1
         version: 1.56.1
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.5
@@ -4065,7 +4083,7 @@ snapshots:
 
   require-in-the-middle@5.2.0:
     dependencies:
-      debug: 4.3.7
+      debug: 4.4.3
       module-details-from-path: 1.0.4
       resolve: 1.22.12
     transitivePeerDependencies:
