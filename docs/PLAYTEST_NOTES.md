@@ -45,7 +45,11 @@ Automated netcode numbers are in `docs/VS01_STATUS.md`.
    RTT; the rewound sweep helps, but watch "bites per kill" in telemetry.
 5. **Marine weapon readability.** Hit feedback waits for the server's confirmation (by design, bible section 26). At 100 ms RTT
    there is a ~100 ms gap between muzzle flash and hit marker.
-6. **Lighting/readability of the greybox** was tuned by eye from screenshots only (orange props, tinted rooms, violet vent strip).
+6. **Open-room Marine advantage.** Hitscan at 0.55–1.2° spread against a 0.4 m-radius hurt capsule is close to 100% accurate when aimed; a
+   Ripper closing 12 m of open floor at 7 m/s is exposed for ~1.7 s versus the 1.1 s the Marine needs. The Resource Room (12×10 m, well, ledge) is
+   the likely Marine-favoured space; Junction corners and the Maintenance bend the Ripper-favoured ones. Watch kill ratio *by room*
+   (`death.room.*` counters). Levers: Ripper speed/leap, rifle spread, cover density.
+7. **Lighting/readability of the greybox** was tuned by eye from screenshots only (orange props, tinted rooms, violet vent strip).
 
 ## How to run the first sessions (Definition of Done items 5, 13, 14)
 

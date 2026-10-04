@@ -13,6 +13,21 @@ import type { DevRoom } from '../protocol';
 
 const T = 0.4; // wall thickness
 
+/** Door / vent openings recorded while building (visual decor only: frames, hazard strips). */
+export interface DoorOpening {
+  /** axis the opening faces along: 'x' = passes through an E/W wall (travel along X) */
+  axis: 'x' | 'z';
+  /** wall centre-plane coordinate on that axis */
+  plane: number;
+  /** centre of the opening along the wall */
+  c: number;
+  w: number;
+  y0: number;
+  h: number;
+  vent: boolean;
+}
+export const DOOR_OPENINGS: DoorOpening[] = [];
+
 export interface RoomVolume {
   name: string;
   x0: number;
@@ -86,6 +101,10 @@ function room(boxes: Box[], r: { x0: number; x1: number; z0: number; z1: number;
     doors
       .filter((d) => d.side === side)
       .map((d) => ({ c: d.c, w: d.w, y0: d.y0 ?? 0, h: d.h ?? 2.4 }));
+  for (const d of doors) {
+    const plane = d.side === 'N' ? z0 - T / 2 : d.side === 'S' ? z1 + T / 2 : d.side === 'W' ? x0 - T / 2 : x1 + T / 2;
+    DOOR_OPENINGS.push({ axis: d.side === 'N' || d.side === 'S' ? 'z' : 'x', plane, c: d.c, w: d.w, y0: d.y0 ?? 0, h: d.h ?? 2.4, vent: (d.y0 ?? 0) > 1 });
+  }
   wallWithCuts(boxes, 'x', x0 - T, x1 + T, z0 - T, z0, h, cuts('N'));
   wallWithCuts(boxes, 'x', x0 - T, x1 + T, z1, z1 + T, h, cuts('S'));
   wallWithCuts(boxes, 'z', z0, z1, x0 - T, x0, h, cuts('W'));
@@ -223,7 +242,7 @@ export const ROOMS: RoomVolume[] = [
   { name: 'passage', x0: 10.4, x1: 23.6, z0: 17.4, z1: 21, h: 3.4, tint: 0x5e646e },
   { name: 'resource', x0: 24, x1: 36, z0: 11, z1: 21, h: 5, tint: 0x7a6650 },
   { name: 'maintenance', x0: 4, x1: 23.6, z0: 25.4, z1: 33, h: 3.6, tint: 0x56606a },
-  { name: 'hive', x0: 24, x1: 36, z0: 24, z1: 34, h: 6, tint: 0x6a4a58 },
+  { name: 'hive', x0: 24, x1: 36, z0: 24, z1: 34, h: 6, tint: 0x4d3340 },
   { name: 'vent', x0: 10, x1: 24, z0: 21.4, z1: 28.6, h: 4.3, tint: 0x3a3f46 },
 ];
 
@@ -261,7 +280,7 @@ export const MAP_LIGHTS: MapLight[] = [
   { x: 30, y: 4.5, z: 12, color: 0xffd9a8, intensity: 10, distance: 12 },
   { x: 6, y: 3.0, z: 29, color: 0xffd0a0, intensity: 8, distance: 12 },
   { x: 16, y: 3.1, z: 31, color: 0xffc89a, intensity: 8, distance: 12 },
-  { x: 30, y: 5.4, z: 29, color: 0xff3d5a, intensity: 22, distance: 20 },
+  { x: 30, y: 5.4, z: 29, color: 0xff4d66, intensity: 13, distance: 20 },
   { x: 30, y: 2.5, z: 32, color: 0x9a4dff, intensity: 10, distance: 12 },
 ];
 

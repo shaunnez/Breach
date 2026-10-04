@@ -63,20 +63,30 @@ export class GameNetClient {
     this.attach(room);
   }
 
-  /** Try to resume a seat from a stored token (page reload). Returns false if nothing to resume. */
-  async tryResume(): Promise<boolean> {
+  /**
+   * Try to resume a seat from a stored token (page reload). Returns false if nothing to resume.
+   * A fast reload can reconnect before the server has noticed the old socket closed, in which case
+   * the token is briefly "invalid"; so retry with backoff for a few seconds before giving up.
+   */
+  async tryResume(maxWaitMs = 5000): Promise<boolean> {
     const tok = this.storage?.getItem('breach.reconnect');
     if (!tok) return false;
-    try {
-      this.setStatus('reconnecting');
-      const room = await this.client.reconnect(tok);
-      this.attach(room);
-      return true;
-    } catch {
-      this.storage?.removeItem('breach.reconnect');
-      this.setStatus('idle');
-      return false;
+    this.setStatus('reconnecting');
+    const deadline = performance.now() + maxWaitMs;
+    let attempt = 0;
+    while (performance.now() < deadline) {
+      try {
+        const room = await this.client.reconnect(tok);
+        this.attach(room);
+        return true;
+      } catch {
+        await new Promise((r) => setTimeout(r, [0, 250, 500, 800, 1200][Math.min(attempt, 4)] + 100));
+        attempt++;
+      }
     }
+    this.storage?.removeItem('breach.reconnect');
+    this.setStatus('idle');
+    return false;
   }
 
   private attach(room: Room): void {

@@ -122,3 +122,9 @@ of any composition (1v1 and 2v2 are the recommended configs). Class change durin
 which breaks the `forks` pool). Headless netcode tests use a *virtual-time* link around the **real** `Simulation` and the
 **real** `PredictionController`, so ten minutes of play at 100 ms RTT run in about a second; `pnpm soak` runs the same
 clients over real sockets in real time.
+
+**D-23 — Reload-resume retries for ~5 s.** The production bundle loads fast enough that a reloaded tab can reconnect before the server has
+noticed the old socket closed, so the reconnect token is briefly "invalid". `GameNetClient.tryResume` therefore retries with backoff
+(found by the Playwright reload test against the built artifact) instead of giving up on the first rejection.
+
+**D-24 — Dev-tool dummy placement** walks 4 → 1.7 m in front of the requester until the spot is free (spawn points sit close to walls).

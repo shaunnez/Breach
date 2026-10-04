@@ -1,8 +1,9 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@playwright/test';
 
 const PORT = 4310;
-const root = path.resolve(__dirname, '../..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 export default defineConfig({
   testDir: 'e2e',

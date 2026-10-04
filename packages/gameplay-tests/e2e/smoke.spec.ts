@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type Page } from '@playwright/test';
+import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 
 declare global {
   interface Window {
@@ -6,8 +6,15 @@ declare global {
   }
 }
 
+// Software WebGL render loops are CPU-heavy: every context must be closed when its test ends or later tests starve.
+const opened: BrowserContext[] = [];
+test.afterEach(async () => {
+  for (const c of opened.splice(0)) await c.close();
+});
+
 async function newPlayer(browser: Browser, name: string, query = ''): Promise<Page> {
   const ctx = await browser.newContext({ viewport: { width: 480, height: 270 } });
+  opened.push(ctx);
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.log(`[${name}] pageerror`, e.message));
   await page.goto(`/play?${query}`);
@@ -58,9 +65,10 @@ test('two remote browsers join one room, start, and see each other', async ({ br
 
 test('marine kills a ripper with server-authoritative rifle fire; death + respawn replicate', async ({ browser }) => {
   const { a, b } = await startMatch(browser, { dev: true });
-  await a.evaluate(() => {
-    window.__breach.net.dev({ action: 'spawnDummy', cls: 1 });
-  });
+  // known open ground with 4 m of clear floor in front (junction, facing east), independent of which spawn we got
+  await a.evaluate(() => window.__breach.net.dev({ action: 'teleport', room: 'junction' }));
+  await a.waitForTimeout(800);
+  await a.evaluate(() => window.__breach.net.dev({ action: 'spawnDummy', cls: 1 }));
   await a.waitForFunction(() => window.__breach.view.players.some((p: any) => p.dummy));
   await a.evaluate(() => {
     const rt = window.__breach;

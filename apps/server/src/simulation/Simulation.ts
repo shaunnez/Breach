@@ -569,14 +569,19 @@ export class Simulation {
         d.alive = true;
         // park it in front of the requesting player on the floor if that is free, else at its faction spawn
         const f = viewDir(p.sim.yaw, 0);
-        const x = p.sim.px + f.x * 4;
-        const z = p.sim.pz + f.z * 4;
         const y = cls === PlayerClass.Marine ? p.sim.surface === SurfaceState.Ground && p.cls === PlayerClass.Marine ? p.sim.py : 0 : 0.29;
-        const free = !this.world.aabbBlocked(x - 0.4, y + 0.01, z - 0.4, x + 0.4, y + 1.8, z + 0.4);
-        if (free && p.sim.py < 0.5) {
-          d.sim.px = x;
-          d.sim.py = y;
-          d.sim.pz = z;
+        if (p.sim.py < 0.5) {
+          // furthest free spot in front of the requester (walls may be close to the spawn points)
+          for (const dist of [4, 3.2, 2.6, 2.1, 1.7]) {
+            const x = p.sim.px + f.x * dist;
+            const z = p.sim.pz + f.z * dist;
+            if (!this.world.aabbBlocked(x - 0.45, y + 0.01, z - 0.45, x + 0.45, y + 1.8, z + 0.45)) {
+              d.sim.px = x;
+              d.sim.py = y;
+              d.sim.pz = z;
+              break;
+            }
+          }
         }
         break;
       }

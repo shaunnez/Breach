@@ -27,6 +27,7 @@ import {
 } from '@breach/shared';
 import { GameRenderer } from '../render/Renderer';
 import { MapView } from '../map/MapView';
+import { MapDecor } from '../map/MapDecor';
 import { InputController } from '../input/InputController';
 import { CameraRig } from '../camera/CameraRig';
 import { DebugDraw } from '../debug/DebugDraw';
@@ -59,6 +60,7 @@ export class GameRuntime {
   readonly renderer: GameRenderer;
   readonly world = createTestCellA();
   private map = new MapView();
+  private decor = new MapDecor();
   readonly input: InputController;
   private cam = new CameraRig();
   ctrl: PredictionController | null = null;
@@ -109,6 +111,7 @@ export class GameRuntime {
   ) {
     this.renderer = new GameRenderer(canvas);
     this.renderer.scene.add(this.map.group);
+    this.renderer.scene.add(this.decor.group);
     this.renderer.scene.add(this.debugDraw.object);
     this.fx = new Fx(this.renderer.scene);
     this.fpv = new FirstPersonView(this.renderer.camera);
@@ -149,6 +152,7 @@ export class GameRuntime {
     this.remotes.clear();
     this.fx.dispose();
     this.map.dispose();
+    this.decor.dispose();
     this.renderer.dispose();
     if ((window as any).__breach === this) delete (window as any).__breach;
   }
