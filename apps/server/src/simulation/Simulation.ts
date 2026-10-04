@@ -12,7 +12,6 @@ import {
   RIPPER,
   SURFACE_NAMES,
   SurfaceState,
-  TICK_DT,
   TICK_MS,
   biteOrigin,
   clamp,
@@ -20,7 +19,6 @@ import {
   createPlayerSim,
   createTestCellA,
   dist,
-  dot,
   factionOf,
   hurtCapsule,
   newStepResult,
@@ -91,6 +89,8 @@ export interface ServerPlayer {
   isDummy: boolean;
   host: boolean;
   prevPrimary: boolean;
+  /** tick the current life first took damage (encounter time-to-kill telemetry) */
+  firstDamagedAtTick: number;
   frameWindow: number[];
   stats: PlayerStats;
   lastShot: { seq: number; result: ShotRejectReason; hit: boolean; rewindMs: number };
@@ -161,6 +161,7 @@ export class Simulation {
       isDummy,
       host: false,
       prevPrimary: false,
+      firstDamagedAtTick: 0,
       frameWindow: [],
       stats: { shotsFired: 0, shotsHit: 0, bites: 0, biteHits: 0, leaps: 0, rejectedInputs: 0, inputsDropped: 0, ticksBySurface: [0, 0, 0, 0] },
       lastShot: { seq: 0, result: 'ok', hit: false, rewindMs: 0 },
@@ -248,6 +249,7 @@ export class Simulation {
     p.alive = alive;
     p.epoch = (p.epoch + 1) & 0xffff;
     p.queue.length = 0;
+    p.firstDamagedAtTick = 0;
     p.lastProcessedSeq = p.highestSeq;
     p.protectedUntilTick = alive ? this.tick + secToTicks(MATCH.spawnProtectionSec) : 0;
     p.credit = CREDIT_CAP;
@@ -273,6 +275,11 @@ export class Simulation {
       }
       if (f.seq <= p.highestSeq) {
         this.reject(p, 'stale-seq');
+        continue;
+      }
+      if (f.epoch !== p.epoch) {
+        // produced before the client learned of a spawn/teleport/reconnect: never simulate it
+        this.reject(p, 'stale-epoch');
         continue;
       }
       if (p.frameWindow.length >= MAX_FRAMES_PER_SEC) {
@@ -328,6 +335,7 @@ export class Simulation {
     const res = this.res;
     stepPlayer(p.sim, f, this.world, res);
     p.stats.ticksBySurface[p.sim.surface]++;
+    if (p.cls === PlayerClass.Ripper) this.telemetry.inc(`ripper.ticks.${SURFACE_NAMES[p.sim.surface]}`);
     if (!Number.isFinite(p.sim.px + p.sim.py + p.sim.pz) || res.moved > MAX_TICK_MOVE) {
       // Defensive: the shared step cannot do this; if it ever does, snap back to spawn and tell telemetry.
       this.telemetry.warn('movement-envelope', { playerId: p.id, movementCorrectionReason: 'envelope', serverTick: this.tick });
@@ -470,6 +478,7 @@ export class Simulation {
   applyDamage(target: ServerPlayer, attacker: ServerPlayer, dmg: number, kind: 'rifle' | 'bite', at: Vec3): number {
     if (!target.alive) return 0;
     if (target.protectedUntilTick > this.tick) return 0;
+    if (target.firstDamagedAtTick === 0) target.firstDamagedAtTick = this.tick;
     const armourDmg = Math.min(target.armour, dmg);
     target.armour -= armourDmg;
     const healthDmg = dmg - armourDmg;
@@ -489,6 +498,12 @@ export class Simulation {
     victim.queue.length = 0;
     const eventPos = { x: victim.sim.px, y: victim.sim.py, z: victim.sim.pz };
     this.events.push({ ev: { t: 'death', victim: victim.id, killer: killer?.id ?? '', kind, px: eventPos.x, py: eventPos.y, pz: eventPos.z } });
+    const ttkMs = victim.firstDamagedAtTick ? (this.tick - victim.firstDamagedAtTick) * TICK_MS : 0;
+    if (ttkMs > 0) {
+      this.telemetry.inc('ttk.sumMs', ttkMs);
+      this.telemetry.inc('ttk.count');
+    }
+    this.telemetry.inc(`kill.${kind}`);
     this.telemetry.inc(`death.${CLASS_NAMES[victim.cls]}`);
     this.telemetry.inc(`death.room.${roomAt(eventPos.x, eventPos.z)}`);
     this.telemetry.info('death', {
@@ -498,6 +513,7 @@ export class Simulation {
       class: CLASS_NAMES[victim.cls],
       killer: killer?.id,
       kind,
+      ttkMs: Math.round(ttkMs),
       room: roomAt(eventPos.x, eventPos.z),
       serverTick: this.tick,
     });

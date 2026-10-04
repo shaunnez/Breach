@@ -19,14 +19,14 @@ const place = (p: ServerPlayer, x: number, y: number, z: number, yaw: number) =>
   p.sim.vx = p.sim.vy = p.sim.vz = 0;
 };
 let seqs: Record<string, number> = {};
-const frame = (id: string, patch: Partial<InputFrame>): InputFrame => {
+const frame = (id: string, patch: Partial<InputFrame>, epoch: number): InputFrame => {
   seqs[id] = (seqs[id] ?? 0) + 1;
-  return { ...emptyInput(seqs[id]), ...patch };
+  return { ...emptyInput(seqs[id]), epoch, ...patch };
 };
 /** feed one frame per tick for n ticks */
 const hold = (sim: Simulation, id: string, n: number, patch: Partial<InputFrame> | ((i: number) => Partial<InputFrame>)) => {
   for (let i = 0; i < n; i++) {
-    sim.receiveInputs(id, [frame(id, typeof patch === 'function' ? patch(i) : patch)]);
+    sim.receiveInputs(id, [frame(id, typeof patch === 'function' ? patch(i) : patch, sim.players.get(id)!.epoch)]);
     sim.step();
   }
 };
@@ -74,7 +74,7 @@ describe('rifle', () => {
     let s = 0;
     for (let t = 0; t < 60; t++) {
       const batch: InputFrame[] = [];
-      for (let k = 0; k < 8; k++) batch.push({ ...emptyInput(++s), yaw: EAST, primary: true });
+      for (let k = 0; k < 8; k++) batch.push({ ...emptyInput(++s), epoch: m.epoch, yaw: EAST, primary: true });
       sim.receiveInputs('m', batch);
       sim.step();
       shots += sim.drainEvents().filter((e) => e.ev.t === 'fire').length;
@@ -242,17 +242,17 @@ describe('input validation', () => {
     seqs = {};
     const { sim, m } = setup();
     sim.receiveInputs('m', [{ seq: 'x' }]);
-    sim.receiveInputs('m', [{ ...emptyInput(1), yaw: NaN }]);
+    sim.receiveInputs('m', [{ ...emptyInput(1), epoch: m.epoch, yaw: NaN }]);
     sim.receiveInputs('m', 'nonsense');
     sim.receiveInputs('m', []);
     expect(m.queue.length).toBe(0);
-    sim.receiveInputs('m', [{ ...emptyInput(5), moveZ: 1e9, moveX: -1e9, pitch: 99, yaw: 1000 }]);
+    sim.receiveInputs('m', [{ ...emptyInput(5), epoch: m.epoch, moveZ: 1e9, moveX: -1e9, pitch: 99, yaw: 1000 }]);
     expect(m.queue.length).toBe(1);
     const q = m.queue[0].f;
     expect(Math.hypot(q.moveX, q.moveZ)).toBeLessThanOrEqual(1 + 1e-9);
     expect(Math.abs(q.pitch)).toBeLessThan(Math.PI / 2);
     expect(Math.abs(q.yaw)).toBeLessThanOrEqual(Math.PI);
-    sim.receiveInputs('m', [{ ...emptyInput(5) }, { ...emptyInput(3) }]); // stale / replayed
+    sim.receiveInputs('m', [{ ...emptyInput(5), epoch: m.epoch }, { ...emptyInput(3), epoch: m.epoch }]); // stale / replayed
     expect(m.queue.length).toBe(1);
     expect(sim.telemetry.counters.get('input.reject.stale-seq')).toBe(2);
     expect(sim.telemetry.counters.get('input.reject.malformed')).toBeGreaterThanOrEqual(3);
@@ -271,15 +271,34 @@ describe('input validation', () => {
     let hs = 0;
     let cs = 0;
     for (let t = 0; t < 120; t++) {
-      sim.receiveInputs('h', [{ ...emptyInput(++hs), moveZ: 1, yaw: Math.PI }]);
+      sim.receiveInputs('h', [{ ...emptyInput(++hs), epoch: honest.epoch, moveZ: 1, yaw: Math.PI }]);
       const batch: InputFrame[] = [];
-      for (let k = 0; k < 8; k++) batch.push({ ...emptyInput(++cs), moveZ: 1, yaw: Math.PI });
+      for (let k = 0; k < 8; k++) batch.push({ ...emptyInput(++cs), epoch: cheat.epoch, moveZ: 1, yaw: Math.PI });
       sim.receiveInputs('c', batch);
       sim.step();
     }
     const frames = (p: ServerPlayer) => p.stats.ticksBySurface.reduce((a, b) => a + b, 0);
     expect(cheat.stats.inputsDropped + cheat.stats.rejectedInputs).toBeGreaterThan(0);
     expect(frames(cheat)).toBeLessThanOrEqual(frames(honest) + 5);
+  });
+});
+
+describe('epochs', () => {
+  it('drops in-flight frames produced before a teleport/respawn and never simulates them', () => {
+    seqs = {};
+    const { sim, m } = setup();
+    place(m, 6, 0, 5, 0);
+    const oldEpoch = m.epoch;
+    sim.devAction('m', { action: 'teleport', room: 'resource' });
+    expect(m.epoch).not.toBe(oldEpoch);
+    const x = m.sim.px;
+    sim.receiveInputs('m', [{ ...emptyInput(50), epoch: oldEpoch, moveZ: 1 }]); // sent before the client knew
+    sim.step();
+    expect(m.sim.px).toBe(x);
+    expect(sim.telemetry.counters.get('input.reject.stale-epoch')).toBe(1);
+    sim.receiveInputs('m', [{ ...emptyInput(51), epoch: m.epoch, moveZ: 1 }]);
+    sim.step();
+    expect(m.lastProcessedSeq).toBe(51);
   });
 });
 

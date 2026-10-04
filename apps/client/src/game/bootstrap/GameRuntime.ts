@@ -33,7 +33,7 @@ import { DebugDraw } from '../debug/DebugDraw';
 import { PredictionController } from '../network/PredictionController';
 import type { GameNetClient } from '../network/GameNetClient';
 import type { MatchView, PlayerSnapshot } from '../network/types';
-import { RemoteEntity, makePlaceholderAvatar, type AvatarLike } from '../entities/RemotePlayers';
+import { RemoteEntity, type AvatarLike } from '../entities/RemotePlayers';
 import { getState, setState, emptyHud, type DebugState, type HudState } from '../../app/store';
 import { Fx } from '../combat/Fx';
 import { AudioEngine } from '../audio/AudioEngine';
@@ -94,6 +94,7 @@ export class GameRuntime {
   private lastFootstep = 0;
   private lastTelemetry = 0;
   private telemetryRec = 0;
+  private telemetryReasons: Record<string, number> = {};
   private telemetryErrSum = 0;
   private telemetryErrN = 0;
   private telemetryErrMax = 0;
@@ -230,6 +231,7 @@ export class GameRuntime {
           if (rep.reconciled) {
             this.reconWindow.push(performance.now());
             this.telemetryRec++;
+            this.telemetryReasons[rep.reason || 'unknown'] = (this.telemetryReasons[rep.reason || 'unknown'] ?? 0) + 1;
           }
           if (this.ctrl.epoch !== wasEpoch || classChanged) {
             // respawn / teleport / class change: reset the view onto the new transform
@@ -385,6 +387,7 @@ export class GameRuntime {
     const s = this.input.sample();
     const locked = this.input.locked;
     const frame = {
+      epoch: ctrl.epoch,
       clientTimeMs: now,
       moveX: locked ? s.moveX : 0,
       moveZ: locked ? s.moveZ : 0,
@@ -685,8 +688,12 @@ export class GameRuntime {
         errAvg: this.telemetryErrN ? this.telemetryErrSum / this.telemetryErrN : 0,
         errMax: this.telemetryErrMax,
         recPerSec: this.telemetryRec / Math.max(0.1, secs),
+        recCount: this.telemetryRec,
+        windowSec: secs,
+        reasons: this.telemetryReasons,
         fps: this.renderer.stats.fps,
-      });
+      } as unknown as Record<string, number>);
+      this.telemetryReasons = {};
       this.telemetryRec = 0;
       this.telemetryErrSum = this.telemetryErrN = this.telemetryErrMax = 0;
     }

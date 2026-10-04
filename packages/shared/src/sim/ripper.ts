@@ -108,7 +108,7 @@ export function stepRipperMovement(s: PlayerSim, input: InputFrame, world: Colli
   const jumpPressed = input.jump && !s.prevJump;
   s.prevJump = input.jump ? 1 : 0;
 
-  let n: Vec3 = { x: s.nx, y: s.ny, z: s.nz };
+  const n: Vec3 = { x: s.nx, y: s.ny, z: s.nz };
   let v: Vec3 = { x: s.vx, y: s.vy, z: s.vz };
   const frame = surfaceFrame(n, s.yaw, s.pitch);
   const mx = input.moveX;

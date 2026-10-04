@@ -54,6 +54,28 @@ export class Telemetry {
     this.log('debug', event, fields);
   }
 
+  /** Derived tuning metrics from the bible's section 28 aggregation list. */
+  summary(): Record<string, number | string> {
+    const c = (k: string) => this.counters.get(k) ?? 0;
+    const surf = ['ground', 'wall', 'ceiling', 'air'].map((s) => c(`ripper.ticks.${s}`));
+    const surfTotal = surf.reduce((a, b) => a + b, 0) || 1;
+    const marineDeaths = c('death.marine');
+    const ripperDeaths = c('death.ripper');
+    return {
+      marineKillsPerRipperKill: ripperDeaths ? +(c('death.ripper') ? (ripperDeaths / Math.max(1, marineDeaths)).toFixed(2) : 0) : 0,
+      avgEncounterTtkMs: c('ttk.count') ? Math.round(c('ttk.sumMs') / c('ttk.count')) : 0,
+      rifleAccuracy: c('rifle.shots') ? +(c('rifle.hits') / c('rifle.shots')).toFixed(3) : 0,
+      bitesPerKill: c('kill.bite') ? +(c('bite.attempts') / c('kill.bite')).toFixed(2) : 0,
+      ripperTimeGround: +(surf[0] / surfTotal).toFixed(3),
+      ripperTimeWall: +(surf[1] / surfTotal).toFixed(3),
+      ripperTimeCeiling: +(surf[2] / surfTotal).toFixed(3),
+      ripperTimeAir: +(surf[3] / surfTotal).toFixed(3),
+      leaps: c('ripper.leaps'),
+      reconciliationReports: c('client.reconciliations'),
+      reconciliationsPerMinute: c('client.minutes') ? +(c('client.reconciliations') / c('client.minutes')).toFixed(2) : 0,
+    };
+  }
+
   snapshot(): Record<string, number> {
     return Object.fromEntries([...this.counters.entries()].sort());
   }

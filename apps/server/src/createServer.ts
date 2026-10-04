@@ -35,7 +35,7 @@ export async function createGameServer(cfg: ServerConfig): Promise<RunningServer
     res.json({ ok: true, build: buildSha, uptimeSec: Math.round(process.uptime()), rooms: matchMaker.stats.local.roomCount, ccu: matchMaker.stats.local.ccu });
   });
   app.get('/debug/telemetry', (_req, res) => {
-    res.json({ build: buildSha, counters: telemetry.snapshot(), recent: telemetry.recent.slice(-50) });
+    res.json({ build: buildSha, summary: telemetry.summary(), counters: telemetry.snapshot(), recent: telemetry.recent.slice(-50) });
   });
 
   // Optional: serve the built client from the same service (single-service deploy / local prod check).

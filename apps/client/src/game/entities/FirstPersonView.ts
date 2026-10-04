@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PlayerClass, SurfaceState, clamp, type PlayerSim } from '@breach/shared';
+import { SurfaceState, clamp, type PlayerSim } from '@breach/shared';
 import { buildRifle, type Rifle } from './Avatar';
 
 /** Camera-attached view models: pulse rifle for the Marine, forelimb claws for the Ripper. */

@@ -95,7 +95,7 @@ export class PredictionController {
   /** Run one local tick from a freshly sampled input. Returns the step result for presentation (muzzle flash etc). */
   predict(input: Omit<InputFrame, 'seq'>): { frame: InputFrame; result: StepResult; before: PlayerSim } {
     // Predict from exactly what the server will simulate: same clamping / normalisation / yaw wrap.
-    const frame = sanitizeInput({ ...input, seq: this.nextSeq++ });
+    const frame = sanitizeInput({ ...input, seq: this.nextSeq++, epoch: this.epoch });
     if (!frame) throw new Error('PredictionController: unusable input frame');
     copyPlayerSim(this.prev, this.sim);
     const before = clonePlayerSim(this.sim);

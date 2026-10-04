@@ -49,7 +49,7 @@ export class TestClient {
     return this.view?.players.find((p) => p.id === id);
   }
   input(patch: Partial<InputFrame> = {}): InputFrame {
-    const f = { ...emptyInput(++this.seq), ...patch };
+    const f = { ...emptyInput(++this.seq), epoch: this.me?.epoch ?? 0, ...patch };
     this.net.queueInput(f);
     return f;
   }

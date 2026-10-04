@@ -119,6 +119,12 @@ export class BreachRoom extends Room<MatchSchema> {
     this.onMessage('tel', (client, m: Record<string, unknown>) => {
       const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
       const p = this.sim.players.get(client.sessionId);
+      const rec = num(m?.recCount) ?? 0;
+      const secs = num(m?.windowSec) ?? 0;
+      tel.inc('client.reconciliations', rec);
+      tel.inc('client.minutes', secs / 60);
+      const reasons = typeof m?.reasons === 'object' && m.reasons ? (m.reasons as Record<string, number>) : {};
+      for (const [k, v] of Object.entries(reasons)) if (typeof v === 'number') tel.inc(`client.recon.${k}`, v);
       tel.info('client-telemetry', {
         matchId: this.sim.matchId,
         roomId: this.roomId,
@@ -129,6 +135,7 @@ export class BreachRoom extends Room<MatchSchema> {
         reconciliationErrorM: num(m?.errAvg),
         errMaxM: num(m?.errMax),
         reconciliationsPerSec: num(m?.recPerSec),
+        movementCorrectionReason: Object.keys(reasons).join(',') || undefined,
         fps: num(m?.fps),
       });
     });

@@ -20,6 +20,12 @@ export interface InputFrame {
   interact: boolean;
   /** Smallest prerequisite beyond the bible's frame: Marine needs a reload key. */
   reload: boolean;
+  /**
+   * Server epoch the client believed it was in when it produced this frame. The server bumps the epoch
+   * on spawn/teleport/reconnect and drops frames from an older epoch (they were simulated against a
+   * position the player no longer has).
+   */
+  epoch: number;
 }
 
 export const emptyInput = (seq = 0): InputFrame => ({
@@ -35,11 +41,12 @@ export const emptyInput = (seq = 0): InputFrame => ({
   secondary: false,
   interact: false,
   reload: false,
+  epoch: 0,
 });
 
 export const MAX_PITCH = (Math.PI / 2) * 0.998;
 
-export type InputReject = 'malformed' | 'stale-seq' | 'seq-gap' | 'queue-full';
+export type InputReject = 'malformed' | 'stale-seq' | 'seq-gap' | 'queue-full' | 'stale-epoch' | 'flood';
 
 /** Validate + clamp a raw input object. Returns null if unusable. */
 export function sanitizeInput(raw: unknown): InputFrame | null {
@@ -78,6 +85,7 @@ export function sanitizeInput(raw: unknown): InputFrame | null {
     secondary: r.secondary === true,
     interact: r.interact === true,
     reload: r.reload === true,
+    epoch: typeof r.epoch === 'number' && Number.isFinite(r.epoch) ? ((r.epoch | 0) & 0xffff) : 0,
   };
 }
 

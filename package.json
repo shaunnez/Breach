@@ -4,7 +4,9 @@
   "private": true,
   "description": "BREACH//HIVE VS01 Combat Truth Slice",
   "packageManager": "pnpm@10.28.0",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "pnpm -r --parallel --filter @breach/server --filter @breach/client dev",
     "build": "pnpm --filter @breach/shared build && pnpm --filter @breach/server build && pnpm --filter @breach/client build",
@@ -21,5 +23,12 @@
     "globals": "^16.0.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.0"
+  },
+  "type": "module",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "msgpackr-extract"
+    ]
   }
 }

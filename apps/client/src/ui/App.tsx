@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { PlayerClass, MATCH } from '@breach/shared';
+import { PlayerClass, MATCH, NET } from '@breach/shared';
 import { session } from '../app/session';
 import { setState, useStore } from '../app/store';
 import { GameScreen } from './GameScreen';
@@ -25,7 +25,7 @@ function ConnectionBanner() {
   if (status !== 'reconnecting') return null;
   return (
     <div className="conn-banner" role="status">
-      <div className="spinner" /> Reconnecting… {reason} <small>(seat held for {MATCH.maxPlayers > 0 ? 15 : 0}s)</small>
+      <div className="spinner" /> Reconnecting… {reason} <small>(seat held for {NET.reconnectSeatHoldMs / 1000}s)</small>
     </div>
   );
 }
