@@ -193,7 +193,7 @@ describe('BuildRequest validation (bible section 33): role, node, occupancy, fun
   });
 
   it('is rate limited (message flood cannot place or probe faster than the cap)', () => {
-    const { sim, c } = setup();
+    const { sim } = setup();
     let answered = 0;
     for (let i = 0; i < 50; i++) if (sim.requestBuild('c', extractor(i)) !== null) answered++;
     expect(answered).toBe(COMMAND.msgPerSec);
