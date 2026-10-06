@@ -84,7 +84,7 @@ VS02's question (bible section 35) is whether teams start caring about the room 
 
 | Date | Testers (n) | Format | What felt good | What felt bad | Fun verdict ("play again?") | Constants changed |
 |---|---|---|---|---|---|---|
-| 2026-10-06 | 1 (project owner, solo, hands-on) | Ripper movement | Wall/ceiling climbing concept | Auto wall-attach caught the Ripper in doorways/under roofs; Ripper fell off walls when stationary | n/a (not a fun test) | Cling key (hold/toggle); no slow-detach while clinging — see tuning log |
+| 2026-10-06 | 1 (project owner, solo, hands-on) | Ripper movement | Wall/ceiling climbing concept | Auto wall-attach caught the Ripper in doorways/under roofs; Ripper fell off walls when stationary; could not stop half-way up a wall | n/a (not a fun test) | Cling key (hold/toggle); no slow-detach while clinging; cling brakes on the spot (see tuning log) |
 
 **VS02 sessions** (after VS01 is fun): 2v2 as Commander + Marine vs Ripper + Weaver, then swap. Ask: did you care about the well? Why did
 you leave or defend it? Did the Commander feel useful or like a punishment? Did anyone pick the Weaver twice?
@@ -96,7 +96,9 @@ you leave or defend it? Did the Commander feel useful or like a punishment? Did 
 | 2026-10-06 | **Wall/ceiling cling is now an explicit key** (hold **F**, or **T** to switch to toggle mode). Without it the Ripper only sticks to floors; walls/ceilings are neither attached to nor adhered to. | First hands-on feedback (project owner): auto-attach was janky, e.g. running through doorways or under roofs snapped the Ripper onto the frame. | `InputFrame.cling` (D-25), `ripper.ts` |
 | 2026-10-06 | **Slow-speed wall detach (`minWallSustainSpeed`, 2 m/s) now only applies when cling is not held.** Holding cling lets the Ripper sit stationary on walls/ceilings (ambush hangs). | Owner feedback: Ripper fell off walls when stopped. Resolves known feel risk 2 ("add an explicit hold"). | `ripper.ts` |
 
-No numeric constants in `config/balance.example.ts`, `RIPPER` or `RIPPER_EXTRA` have changed; both changes are input/rule changes.
+| 2026-10-06 | **New `RIPPER_EXTRA.clingIdleDecel` = 40 m/s²** (was effectively `surfaceIdleDecel` 12 while clinging). Releasing W while holding cling now stops the Ripper within ~0.2 s, about 0.5–1 m past the release point. Without cling, walls keep the old 12 m/s² coast. | Owner feedback: you should be able to climb half-way up a wall and stop. Before this, a Ripper at wall speed (8 m/s) coasted ~2.7 m and ended at the ceiling corner, so it could never stop part-way. Verified in a browser test (stops 1.95 m up a 4.2 m wall, server agrees, 0 corrections). | `balance.ts`, `ripper.ts`, `ripper.test.ts`, e2e |
+
+No constants in `config/balance.example.ts` or `RIPPER` have changed. The first two entries are input/rule changes; the third adds one extra constant (`RIPPER_EXTRA.clingIdleDecel`).
 
 **VS02 starting values** (not yet tuned by people): bible economy verbatim (`ECONOMY`: income 0.6/s, Extractor 10, Harvester 10, start 20, build 6 s).
 The extras are `STRUCTURE` (600 HP, starts at 25 % HP), `WEAVER` and `COMMAND`; see D-27 to D-29.

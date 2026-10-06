@@ -172,7 +172,8 @@ function attachedStep(s: PlayerSim, n0: Vec3, v0: Vec3, wish: Vec3, hasInput: bo
     vt = moveToward(vt, target, Math.max(RIPPER.surfaceAcceleration, 10 * dl) * dt);
   } else {
     const sp = len(vt);
-    const dec = (ground ? RIPPER_EXTRA.groundIdleDecel : RIPPER_EXTRA.surfaceIdleDecel) * dt;
+    // clinging with no input = hold position (brake like the floor); without cling, walls/ceilings keep momentum
+    const dec = (ground ? RIPPER_EXTRA.groundIdleDecel : cling ? RIPPER_EXTRA.clingIdleDecel : RIPPER_EXTRA.surfaceIdleDecel) * dt;
     vt = sp <= dec ? v3() : scale(vt, (sp - dec) / sp);
   }
   const sp0 = len(vt);

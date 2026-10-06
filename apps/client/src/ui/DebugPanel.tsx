@@ -5,7 +5,12 @@ import { useStore } from '../app/store';
 
 export function DebugPanel() {
   const d = useStore((s) => s.debug);
-  if (!d) return <div className="debug hint">F3 / ` : debug overlay</div>;
+  if (!d)
+    return (
+      <button className="debug hint" onClick={() => session.runtime?.toggleDebug()} data-testid="debug-toggle">
+        debug overlay (` or F3, or click)
+      </button>
+    );
   const rt = session.runtime;
   const row = (k: string, v: string | number, warn = false) => (
     <div className={`kv ${warn ? 'warn' : ''}`} key={k}>

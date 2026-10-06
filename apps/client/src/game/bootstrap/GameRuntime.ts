@@ -244,9 +244,7 @@ export class GameRuntime {
       this.setViewAssist(!this.assist.enabled);
       this.notice(`Surface view assist ${this.assist.enabled ? 'ON' : 'OFF'}`);
     }
-    if (code === 'F3' || code === 'Backquote') {
-      if (this.dev) setState((s) => ({ debug: s.debug ? null : this.debugState() }));
-    }
+    if (code === 'F3' || code === 'Backquote' || code === 'IntlBackslash') this.toggleDebug(); // § / ` sits top-left on Mac keyboards
     if (code === 'KeyM') this.audio.toggleMute();
     const pick = code === 'Digit1' ? 0 : code === 'Digit2' ? 1 : code === 'Digit3' ? 2 : -1;
     if (pick >= 0 && this.me && !this.me.alive && view_isPlaying(this.view)) {
@@ -344,6 +342,10 @@ export class GameRuntime {
       this.commander.exit();
       this.notice('Left the Command Core: click to play');
     }
+  }
+
+  toggleDebug(): void {
+    if (this.dev) setState((s) => ({ debug: s.debug ? null : this.debugState() }));
   }
 
   private notice(text: string): void {

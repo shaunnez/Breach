@@ -92,7 +92,7 @@ function Landing() {
             <b>Ripper:</b> hold F to cling to walls/ceilings (T: hold/toggle) · LMB bite · Space leap (costs energy) · RMB/C let go · V toggle surface view assist
           </li>
         </ul>
-        {dev && <p className="devnote">Dev mode ON: press F3 or ` for the debug panel.</p>}
+        {dev && <p className="devnote">Dev mode ON: press ` (or F3), or click "debug overlay" top-left, for the debug panel.</p>}
       </section>
     </main>
   );

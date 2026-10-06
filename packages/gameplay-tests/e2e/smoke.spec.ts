@@ -109,6 +109,31 @@ test('ripper climbs a wall and crosses onto the ceiling with WASD + F (cling) + 
   expect(recon).toBeLessThanOrEqual(2);
 });
 
+test('ripper climbs part-way, releases W while holding F, and hangs there (server agrees)', async ({ browser }) => {
+  const { a } = await startMatch(browser, { dev: true, aClass: 'ripper', bClass: 'marine' });
+  await a.evaluate(() => window.__breach.net.dev({ action: 'teleport', room: 'junction' }));
+  await a.waitForTimeout(800);
+  await a.evaluate(() => {
+    window.__breach.input.onLook = () => {};
+    window.__breach.assist.reset(Math.PI, 0); // face the south wall
+  });
+  await a.keyboard.down('KeyF');
+  await a.keyboard.down('KeyW');
+  await a.waitForFunction(() => window.__breach.ctrl.sim.surface === 1, undefined, { timeout: 30_000 });
+  await a.keyboard.up('KeyW');
+  await a.waitForTimeout(1500);
+  const y0 = await a.evaluate(() => window.__breach.ctrl.sim.py as number);
+  expect(y0).toBeLessThan(3.2); // stopped part-way up the 4.2 m wall, not coasted to the ceiling
+  await a.waitForTimeout(2500);
+  const st = await a.evaluate(() => ({ surf: window.__breach.ctrl.sim.surface, y: window.__breach.ctrl.sim.py, server: window.__breach.me.sim.surface, sy: window.__breach.me.sim.py }));
+  expect(st.surf).toBe(1);
+  expect(st.server).toBe(1);
+  expect(Math.abs(st.y - y0)).toBeLessThan(0.02);
+  expect(Math.abs(st.sy - st.y)).toBeLessThan(0.02);
+  await a.keyboard.up('KeyF'); // letting go drops it
+  await a.waitForFunction(() => window.__breach.ctrl.sim.surface !== 1);
+});
+
 test('a page reload resumes the same seat (reconnect token)', async ({ browser }) => {
   const { a, b } = await startMatch(browser);
   const idBefore = await b.evaluate(() => window.__breach.net.sessionId);

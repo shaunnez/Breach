@@ -90,7 +90,8 @@ localStorage. Roll cue is limited to ±28° and derived from the wall side. **Th
 **D-25 — Wall/ceiling cling is an input (`InputFrame.cling`, default `true` when absent).** Client: hold **F**, or press **T** to
 switch to toggle mode where F latches it. Floors always stick; walls/ceilings attach (air, edge-rounding adhesion and corner transitions)
 only while cling is on, releasing it on a wall/ceiling drops the Ripper, and the slow-speed detach no longer applies while clinging so a
-Ripper can sit still. Absent/`true` default keeps old clients, bots and fuzzers on the previous auto-attach behaviour.
+Ripper can sit still, and with no movement input a clinging Ripper brakes at `clingIdleDecel` (40 m/s², like the floor) so it stops part-way up a
+wall instead of coasting to the top. Absent/`true` default keeps old clients, bots and fuzzers on the previous auto-attach behaviour.
 Supersedes the "auto-attach on contact" assumption in D-14/D-16.
 
 **D-16 — Ripper "let go"** (secondary button) is an explicit detach, mapped to the bible's otherwise unused `secondary`.

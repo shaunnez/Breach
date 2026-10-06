@@ -65,6 +65,8 @@ export const RIPPER_EXTRA = {
   /** Deceleration with no input while attached to ground / wall+ceiling (wall coasting keeps momentum). */
   groundIdleDecel: 40,
   surfaceIdleDecel: 12,
+  /** Deceleration with no input while clinging (F) to a wall/ceiling: stop where you are, like on the floor (D-25). */
+  clingIdleDecel: 40,
   /** Soft cap applied when tangent speed exceeds maxTraversalSpeed (e.g. after landing a leap). */
   overspeedDecel: 25,
   /** Horizontal speed cap in the air. */
