@@ -212,3 +212,15 @@ test('Weaver walks to the well and grows a Harvester with E; the Bloom earns fro
   await b.waitForFunction(() => window.__breach.view.economy.resources[1] > 11, undefined, { timeout: 30_000 });
   await expect(b.locator('[data-testid=well]')).toContainText('ours Harvester');
 });
+
+test('a living Ripper changes into a Weaver in the Hive with 3 (and back with 2)', async ({ browser }) => {
+  const { a } = await startMatch(browser, { dev: true, aClass: 'ripper', bClass: 'marine' });
+  await a.evaluate(() => window.__breach.net.dev({ action: 'teleport', room: 'hive' }));
+  await a.waitForFunction(() => Math.hypot(window.__breach.ctrl.sim.px - 30, window.__breach.ctrl.sim.pz - 31) < 0.3);
+  await expect(a.locator('[data-testid=prompt]')).toContainText('3 — Weaver');
+  await a.keyboard.press('Digit3');
+  await a.waitForFunction(() => window.__breach.ctrl.sim.cls === 2 && window.__breach.me.alive);
+  await a.waitForTimeout(3200); // in-base change cooldown
+  await a.keyboard.press('Digit2');
+  await a.waitForFunction(() => window.__breach.ctrl.sim.cls === 1 && window.__breach.me.alive);
+});

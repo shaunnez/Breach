@@ -190,3 +190,9 @@ destroyed}.<type>`, `structure.damage.<type>`, `build.reject.<reason>`, `command
 **D-35 — Soak lineups.** The real-socket soak (`pnpm soak`, CI) now runs Commander + Marine vs Ripper + Weaver; the Commander rebuilds whenever
 the well is free and the Weaver contests it. The virtual-time harness learned Commander mode the way a client does (from the delayed snapshot)
 and has a Weaver fuzzer.
+
+**D-36 — Change class while alive, but only at your own base.** Owner request (2026-10-06): a Bloom player standing in the Hive presses **2** (Ripper)
+or **3** (Weaver) and changes form on the spot, at a Bloom spawn point with full health, with a new input epoch like a respawn. Same side only, and a
+3 s cooldown (`CLASS_CHANGE.baseCooldownSec`) so it cannot be spammed as a free heal. Anywhere else, or while dead, the request queues for the next
+spawn as before (D-21). Side changes never happen on the spot. The Marine spawn counts as the Expedition base, but Marines have only one class (the
+Commander is entered at the console). VS03's "evolution" (with a cost) can build on this.

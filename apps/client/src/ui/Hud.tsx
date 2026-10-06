@@ -107,7 +107,7 @@ export function Hud() {
           <div className="big">ELIMINATED</div>
           <div>Respawn in {hud.respawnIn.toFixed(1)}s</div>
           <div className="sub">{MATCH.respawnSec}s respawn · {MATCH.spawnProtectionSec}s protection</div>
-          <div className="sub">Press 1 = Marine · 2 = Ripper · 3 = Weaver to change class on your next spawn</div>
+          <div className="sub">Press 1 = Marine · 2 = Ripper · 3 = Weaver to change class on your next spawn (Bloom: or alive, inside the Hive)</div>
         </div>
       )}
 

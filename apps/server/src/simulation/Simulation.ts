@@ -1,7 +1,9 @@
 import {
   BITE,
   BUILD_TICKS,
+  CLASS_CHANGE,
   CLASS_NAMES,
+  atOwnBase,
   COMMAND,
   COMMAND_CONSOLE,
   Faction,
@@ -154,7 +156,12 @@ export interface ServerPlayer {
   order: Order | null;
   /** VS02: command/build/order message timestamps (rate limit) */
   msgWindow: number[];
+  /** VS02: earliest tick of the next in-base class change (D-36) */
+  classChangeReadyTick: number;
 }
+
+/** What a class request did: switched on the spot (at base), queued for the next spawn, or refused (side full). */
+export type ClassChangeResult = 'now' | 'queued' | 'refused';
 
 export interface OutEvent {
   ev: GameEvent;
@@ -234,6 +241,7 @@ export class Simulation {
       commanding: false,
       order: null,
       msgWindow: [],
+      classChangeReadyTick: 0,
     };
     this.players.set(id, p);
     return p;
@@ -263,17 +271,40 @@ export class Simulation {
   }
 
   setClass(id: string, cls: PlayerClass): boolean {
+    return this.requestClass(id, cls) !== 'refused';
+  }
+
+  /**
+   * Lobby: immediate. In a match: a living player standing in their own base switches to another class of the same
+   * side on the spot (D-36, e.g. Ripper <-> Weaver in the Hive); otherwise the change waits for the next spawn.
+   */
+  requestClass(id: string, cls: PlayerClass): ClassChangeResult {
     const p = this.players.get(id);
-    if (!p || !isPlayerClass(cls)) return false;
-    if (!p.isDummy && !this.canTakeClass(id, cls)) return false;
+    if (!p || !isPlayerClass(cls)) return 'refused';
+    if (!p.isDummy && !this.canTakeClass(id, cls)) return 'refused';
     if (this.phase === 'warmup') {
       this.spawnPlayer(p, cls, false);
       p.alive = false;
       p.pendingCls = null;
-    } else {
-      p.pendingCls = cls === p.cls ? null : cls;
+      return 'now';
     }
-    return true;
+    if (
+      p.alive &&
+      p.connected &&
+      !p.commanding &&
+      cls !== p.cls &&
+      factionOf(cls) === factionOf(p.cls) &&
+      atOwnBase(p.cls, p.sim.px, p.sim.pz) &&
+      this.tick >= p.classChangeReadyTick
+    ) {
+      this.spawnPlayer(p, cls, true);
+      p.classChangeReadyTick = this.tick + secToTicks(CLASS_CHANGE.baseCooldownSec);
+      this.telemetry.inc(`class.change.base.${CLASS_NAMES[cls]}`);
+      this.events.push({ ev: { t: 'respawn', id: p.id } });
+      return 'now';
+    }
+    p.pendingCls = cls === p.cls ? null : cls;
+    return 'queued';
   }
 
   // ---- match lifecycle ------------------------------------------------------------------------

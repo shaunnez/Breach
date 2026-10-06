@@ -1,6 +1,7 @@
 import { Room, type Client } from '@colyseus/core';
 import {
   BUILD_TICKS,
+  CLASS_LABELS,
   CLASS_NAMES,
   Faction,
   MATCH,
@@ -99,7 +100,10 @@ export class BreachRoom extends Room<MatchSchema> {
     });
     this.onMessage(MSG.setClass, (client, cls: unknown) => {
       if (!isPlayerClass(cls)) return;
-      if (!this.sim.setClass(client.sessionId, cls)) client.send(MSG.notice, { text: 'That side is full (max 2 per side).' });
+      const r = this.sim.requestClass(client.sessionId, cls);
+      if (r === 'refused') client.send(MSG.notice, { text: 'That side is full (max 2 per side).' });
+      else if (r === 'now' && this.sim.phase === 'playing') client.send(MSG.notice, { text: `Changed to ${CLASS_LABELS[cls]}.` });
+      else if (r === 'queued' && this.sim.players.get(client.sessionId)?.alive) client.send(MSG.notice, { text: `${CLASS_LABELS[cls]} on your next spawn (or change at your base).` });
     });
     // VS02: Commander mode, build requests, orders (validated + rate limited in Simulation)
     this.onMessage(MSG.command, (client, m: { action?: unknown }) => {

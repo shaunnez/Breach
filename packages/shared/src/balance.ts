@@ -180,6 +180,11 @@ export const WEAVER = {
   hurtTop: 0.95,
 } as const;
 
+/** EXTRA (VS02, D-36): changing class while alive is allowed only inside your own base, with a short cooldown. */
+export const CLASS_CHANGE = {
+  baseCooldownSec: 3,
+} as const;
+
 /** EXTRA (VS02, D-29): Commander interaction. */
 export const COMMAND = {
   /** horizontal distance from the console stand point within which a Marine may enter */

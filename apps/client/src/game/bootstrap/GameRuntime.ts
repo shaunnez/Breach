@@ -12,6 +12,7 @@ import {
   StructureState,
   WEAVER,
   commanderFrame,
+  atOwnBase,
   factionOf,
   isWalker,
   walkerProfile,
@@ -247,9 +248,10 @@ export class GameRuntime {
     if (code === 'F3' || code === 'Backquote' || code === 'IntlBackslash') this.toggleDebug(); // § / ` sits top-left on Mac keyboards
     if (code === 'KeyM') this.audio.toggleMute();
     const pick = code === 'Digit1' ? 0 : code === 'Digit2' ? 1 : code === 'Digit3' ? 2 : -1;
-    if (pick >= 0 && this.me && !this.me.alive && view_isPlaying(this.view)) {
+    if (pick >= 0 && this.me && view_isPlaying(this.view) && !this.commanding) {
+      // dead: next spawn. Alive: switch on the spot inside your own base (D-36), else queued (the server says which)
       this.net.setClass(pick as 0 | 1 | 2);
-      this.notice(`Next spawn: ${pick === 0 ? 'Expedition' : 'Bloom'} ${CLASS_LABELS[pick as 0 | 1 | 2]} (max 2 per side)`);
+      if (!this.me.alive) this.notice(`Next spawn: ${pick === 0 ? 'Expedition' : 'Bloom'} ${CLASS_LABELS[pick as 0 | 1 | 2]} (max 2 per side)`);
     }
     if (code === 'KeyE') this.interact();
     if (this.commanding) {
@@ -968,6 +970,8 @@ export class GameRuntime {
       prompt = cmd ? `Command Core in use by ${cmd.name}` : 'E — enter the Command Core';
     } else if (ctx === 'well') {
       prompt = st ? 'The well is occupied: destroy it first' : (e?.resources[Faction.Bloom] ?? 0) < STRUCTURE_COST.harvester ? `Need ${STRUCTURE_COST.harvester} resources for a Harvester` : `E — grow a Harvester (${STRUCTURE_COST.harvester})`;
+    } else if (!this.commanding && f === Faction.Bloom && this.ctrl && atOwnBase(me.sim.cls, this.ctrl.sim.px, this.ctrl.sim.pz)) {
+      prompt = `Hive: 2 — Ripper · 3 — Weaver (change form here; now ${CLASS_LABELS[me.sim.cls]})`;
     } else if (this.commanding) {
       prompt = this.buildMode ? 'Click the resource well to place the Extractor · RMB cancel' : `B — place Extractor (${STRUCTURE_COST.extractor}) · E — leave`;
     }

@@ -1,5 +1,6 @@
 import { CollisionWorld, type Box, type BoxKind } from './collision';
 import type { DevRoom } from '../protocol';
+import { PlayerClass } from '../enums';
 
 /**
  * Refinery Test Cell A greybox (bible section 13). X east, Z south, Y up, metres.
@@ -307,6 +308,12 @@ export const MAP_BOXES: Box[] = buildBoxes();
 
 export function createTestCellA(): CollisionWorld {
   return new CollisionWorld(MAP_BOXES.map((b) => ({ ...b })));
+}
+
+/** A side's base: the Hive for the Bloom, the Marine spawn for the Expedition (D-36: change class here while alive). */
+export const BASE_ROOM = { expedition: 'marineSpawn', bloom: 'hive' } as const;
+export function atOwnBase(cls: PlayerClass, x: number, z: number): boolean {
+  return roomAt(x, z) === (cls === PlayerClass.Marine ? BASE_ROOM.expedition : BASE_ROOM.bloom);
 }
 
 export function roomAt(x: number, z: number): string {

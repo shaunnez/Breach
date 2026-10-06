@@ -338,3 +338,39 @@ describe('Commander orders', () => {
     void WEST;
   });
 });
+
+describe('changing class at your own base (D-36)', () => {
+  it('a living Ripper in the Hive becomes a Weaver on the spot; elsewhere it waits for the next spawn', () => {
+    const { sim, r } = setup();
+    place(r, 20, 0.29, 30); // maintenance corridor, not the Hive
+    expect(sim.requestClass('r', PlayerClass.Weaver)).toBe('queued');
+    expect(r.cls).toBe(PlayerClass.Ripper);
+    expect(r.pendingCls).toBe(PlayerClass.Weaver);
+    place(r, 30, 0.29, 31); // Hive
+    const epoch = r.epoch;
+    expect(sim.requestClass('r', PlayerClass.Weaver)).toBe('now');
+    expect(r.cls).toBe(PlayerClass.Weaver);
+    expect(r.pendingCls).toBeNull();
+    expect(r.alive).toBe(true);
+    expect(r.health).toBe(WEAVER.health);
+    expect(r.epoch).not.toBe(epoch); // a respawn-style snap: the client hard-resets onto the new body
+    expect(sim.drainEvents().some((e) => e.ev.t === 'respawn' && e.ev.id === 'r')).toBe(true);
+  });
+
+  it('has a cooldown, never switches sides on the spot, and does nothing for the dead or the Commander', () => {
+    const { sim, r, c } = setup();
+    place(r, 30, 0.29, 31);
+    expect(sim.requestClass('r', PlayerClass.Weaver)).toBe('now');
+    place(r, 30, 0, 31);
+    expect(sim.requestClass('r', PlayerClass.Ripper)).toBe('queued'); // 3 s cooldown
+    idle(sim, 3 * 60);
+    expect(sim.requestClass('r', PlayerClass.Ripper)).toBe('now');
+    place(r, 30, 0.29, 31);
+    expect(sim.requestClass('r', PlayerClass.Marine)).toBe('refused'); // Expedition already has two humans
+    place(c, 6, 0, 5); // in the Expedition base, asking for a Bloom class: the Bloom is full (and a side change never happens on the spot)
+    expect(sim.requestClass('c', PlayerClass.Ripper)).toBe('refused');
+    r.alive = false;
+    idle(sim, 3 * 60);
+    expect(sim.requestClass('r', PlayerClass.Weaver)).toBe('queued');
+  });
+});

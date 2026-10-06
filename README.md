@@ -33,7 +33,7 @@ Open two browser windows, **Create room** in one, paste the 6-character code in 
 
 | | Commander (a Marine at the console) | Weaver (Bloom) |
 |---|---|---|
-| Enter / leave | **E** at the Command Core console (Marine spawn, north wall) | pick Weaver in the lobby, or **3** while dead |
+| Enter / leave | **E** at the Command Core console (Marine spawn, north wall) | pick Weaver in the lobby, press **3** while dead, or press **3** (Weaver) / **2** (Ripper) while standing in the Hive |
 | Controls | WASD pan · wheel or Q/Z zoom · LMB select Marines (shift adds) · RMB move order (selected) or ping · **B** place Extractor (10) on the well · **E** leave | WASD (slow, no climbing) · LMB claw · RMB heal pulse (40 energy) · **E** at the well grows a Harvester (10) |
 
 Economy (bible 32): both sides start with 20. A finished Extractor or Harvester on the well pays its side 0.6/s. Building takes 6 s.
