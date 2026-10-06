@@ -85,7 +85,7 @@ test('marine kills a ripper with server-authoritative rifle fire; death + respaw
   void b;
 });
 
-test('ripper climbs a wall and crosses onto the ceiling with plain WASD + the view assist', async ({ browser }) => {
+test('ripper climbs a wall and crosses onto the ceiling with WASD + F (cling) + the view assist', async ({ browser }) => {
   const { a } = await startMatch(browser, { dev: true, aClass: 'ripper', bClass: 'marine' });
   await a.evaluate(() => window.__breach.net.dev({ action: 'teleport', room: 'junction' }));
   await a.waitForTimeout(800);
@@ -93,6 +93,7 @@ test('ripper climbs a wall and crosses onto the ceiling with plain WASD + the vi
     window.__breach.input.onLook = () => {};
     window.__breach.assist.reset(Math.PI, 0); // face the south wall
   });
+  await a.keyboard.down('KeyF'); // hold cling
   await a.keyboard.down('KeyW');
   const seen = new Set<number>();
   const t0 = Date.now();
@@ -101,6 +102,7 @@ test('ripper climbs a wall and crosses onto the ceiling with plain WASD + the vi
     await a.waitForTimeout(100);
   }
   await a.keyboard.up('KeyW');
+  await a.keyboard.up('KeyF');
   expect(seen.has(1)).toBe(true); // wall
   expect(seen.has(2)).toBe(true); // ceiling
   const recon = await a.evaluate(() => window.__breach.ctrl.stats.reconciliations);
