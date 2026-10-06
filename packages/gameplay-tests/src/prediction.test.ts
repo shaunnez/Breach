@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PlayerClass, TICK_HZ } from '@breach/shared';
-import { VirtualSession, marineBot, ripperBot } from './virtual';
+import { Faction, PlayerClass, TICK_HZ } from '@breach/shared';
+import { VirtualSession, marineBot, ripperBot, weaverBot } from './virtual';
 
 function session(lag: number, jitter: number, minutes: number, seed = 7) {
   const s = new VirtualSession(lag, jitter, seed);
@@ -95,5 +95,64 @@ describe('ten consecutive minutes at 100 ms RTT +/-20 ms: no accumulating desync
     expect(m.maxErrorM).toBeLessThan(0.05);
     expect(r.maxErrorM).toBeLessThan(0.05);
     expect(r.surfaceTicks[1] + r.surfaceTicks[2]).toBeGreaterThan(2000);
+  });
+});
+
+describe('VS02: virtual 4 minutes at 100 ms RTT +/-20 ms with a Commander and a Weaver in the mix', () => {
+  const s = new VirtualSession(100, 20, 31);
+  s.addClient({ id: 'cmdr', cls: PlayerClass.Marine, bot: marineBot, seed: 41 });
+  s.addClient({ id: 'marine', cls: PlayerClass.Marine, bot: marineBot, seed: 42 });
+  s.addClient({ id: 'ripper', cls: PlayerClass.Ripper, bot: ripperBot, seed: 43 });
+  s.addClient({ id: 'weaver', cls: PlayerClass.Weaver, bot: weaverBot, seed: 44 });
+  s.start();
+  const sim = s.server;
+  let minRes = Infinity;
+  let maxOnNode = 0;
+  let commandTicks = 0;
+  let builds = 0;
+  s.run(4 * 60 * TICK_HZ, (t) => {
+    // Commander script, over the real (delayed) uplink: walk-in via dev teleport, enter, build whenever the well is free
+    if (t % (20 * TICK_HZ) === 30 && !sim.players.get('cmdr')!.commanding) s.message(() => sim.devAction('cmdr', { action: 'teleport', room: 'console' }));
+    if (t % (20 * TICK_HZ) === 60) s.message(() => sim.enterCommand('cmdr'));
+    if (t % (5 * TICK_HZ) === 90) s.message(() => sim.requestBuild('cmdr', { requestId: ++builds, structure: 'extractor', resourceNodeId: 'well-a' }));
+    // the Weaver fuzzer is pulled back to the well now and then and tries to claim it
+    if (t % (30 * TICK_HZ) === 200) s.message(() => sim.devAction('weaver', { action: 'teleport', room: 'well' }));
+    if (t % (30 * TICK_HZ) === 230) s.message(() => sim.requestBuild('weaver', { requestId: ++builds, structure: 'harvester', resourceNodeId: 'well-a' }));
+    // a Ripper raid on the well every 45 s (the fuzzer bites a quarter of the time)
+    if (t % (45 * TICK_HZ) === 600) s.message(() => sim.devAction('ripper', { action: 'teleport', room: 'well' }));
+    if (sim.players.get('cmdr')!.commanding) commandTicks++;
+    minRes = Math.min(minRes, sim.econ.teams[0].resources, sim.econ.teams[1].resources);
+    maxOnNode = Math.max(maxOnNode, sim.econ.structures.filter((x) => x.nodeId === 'well-a').length);
+  });
+  const res = s.results();
+  const by = Object.fromEntries(res.map((r) => [r.id, r]));
+  const c = sim.telemetry.counters;
+
+  it('prints the strategy telemetry', () => {
+    console.log('[vs02] economy', JSON.stringify(sim.economySnapshot()));
+    console.log('[vs02] summary', JSON.stringify(sim.telemetry.summary()));
+    for (const r of res) console.log(`[vs02] ${r.id}`, JSON.stringify({ rec: r.reconciliations, hard: r.hardSnaps, max: +r.maxErrorM.toFixed(4), breaks: r.surfaceBreaks, dropped: r.inputsDropped }));
+    expect(commandTicks).toBeGreaterThan(60 * TICK_HZ);
+  });
+
+  it('commanding and the Weaver add no prediction desync', () => {
+    for (const r of res) {
+      expect(r.maxErrorM).toBeLessThan(0.05);
+      expect(r.reconciliations).toBeLessThanOrEqual(5);
+      expect(r.inputsDropped).toBe(0);
+    }
+    expect(by.cmdr.hardSnaps).toBeGreaterThanOrEqual(1); // the console snap is an epoch change, not a correction
+    expect(by.ripper.surfaceBreaks).toBeLessThanOrEqual(1);
+  });
+
+  it('economy invariants hold: never negative, one structure per well, income only from active structures', () => {
+    expect(minRes).toBeGreaterThanOrEqual(0);
+    expect(maxOnNode).toBeLessThanOrEqual(1);
+    expect(c.get('structure.placed.extractor') ?? 0).toBeGreaterThanOrEqual(1);
+    const earned = sim.econ.teams[Faction.Expedition].earned + sim.econ.teams[Faction.Bloom].earned;
+    const activeTicks = (c.get('node.ticks.expedition') ?? 0) + (c.get('node.ticks.bloom') ?? 0);
+    // a structure counts as controlling on its completion tick and pays from the next one
+    const completions = (c.get('structure.completed.extractor') ?? 0) + (c.get('structure.completed.harvester') ?? 0);
+    expect(earned).toBeCloseTo(((activeTicks - completions) * 0.6) / TICK_HZ, 6);
   });
 });

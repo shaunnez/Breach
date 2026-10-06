@@ -5,6 +5,7 @@ import {
   TICK_MS,
   emptyInput,
   clonePlayerSim,
+  commanderFrame,
   createTestCellA,
   type InputFrame,
   type PlayerSim,
@@ -76,6 +77,25 @@ export const ripperBot: Bot = (s, tick, rnd, st) => {
   };
 };
 
+/** Weaver fuzzer: a slow walker that wanders, claws and heal-pulses. */
+export const weaverBot: Bot = (s, tick, rnd, st) => {
+  if (tick % 50 === 0) {
+    st.yawRate = (rnd() - 0.5) * 2.5;
+    st.strafe = rnd() < 0.3 ? Math.round(rnd() * 2 - 1) : 0;
+    st.fwd = rnd() < 0.85 ? 1 : -1;
+  }
+  st.yaw = (st.yaw ?? 0) + (st.yawRate ?? 0) * TICK_DT;
+  return {
+    moveZ: st.fwd ?? 1,
+    moveX: st.strafe ?? 0,
+    yaw: st.yaw,
+    pitch: Math.sin(tick / 70) * 0.25,
+    jump: rnd() < 0.01,
+    primary: Math.floor(tick / 50) % 3 === 0,
+    secondary: tick % 300 < 4,
+  };
+};
+
 interface Packet {
   at: number;
   fn: () => void;
@@ -128,6 +148,8 @@ export class VirtualSession {
     out: InputFrame[];
     tickN: number;
     player: ServerPlayer;
+    /** what this client last *heard* from the server about Commander mode (replicated, so delayed) */
+    commanding: boolean;
   }[] = [];
   constructor(
     public lagMs: number,
@@ -143,7 +165,7 @@ export class VirtualSession {
     const ctrl = new PredictionController(createTestCellA(), p.sim);
     const view = new SurfaceViewAssist();
     view.reset(p.sim.yaw, 0);
-    this.clients.push({ cfg, ctrl, view, rnd: mulberry32(cfg.seed), botState: { yaw: p.sim.yaw }, out: [], tickN: 0, player: p });
+    this.clients.push({ cfg, ctrl, view, rnd: mulberry32(cfg.seed), botState: { yaw: p.sim.yaw }, out: [], tickN: 0, player: p, commanding: false });
   }
 
   start(): void {
@@ -152,6 +174,11 @@ export class VirtualSession {
       c.player.protectedUntilTick = 0;
       c.ctrl.reset(clonePlayerSim(c.player.sim), c.player.epoch, 0);
     }
+  }
+
+  /** Deliver a client -> server message (command / build / order / dev) over the same delayed, ordered uplink. */
+  message(fn: () => void): void {
+    this.send('up', fn);
   }
 
   private delay(): number {
@@ -189,7 +216,7 @@ export class VirtualSession {
           input.yaw = c.view.yaw;
           input.pitch = c.view.pitch;
         }
-        const { frame, before } = c.ctrl.predict(input);
+        const { frame, before } = c.ctrl.predict(c.commanding ? commanderFrame({ ...input, seq: 0 }) : input);
         if (s.cls === PlayerClass.Ripper) {
           c.view.onTick(before, c.ctrl.sim);
           c.view.update(TICK_DT);
@@ -211,7 +238,9 @@ export class VirtualSession {
           const snap = quantise(clonePlayerSim(p.sim));
           const ack = p.lastProcessedSeq;
           const epoch = p.epoch;
+          const commanding = p.commanding;
           this.send('down', () => {
+            c.commanding = commanding && p.alive;
             if (p.alive) c.ctrl.onServerState(snap, ack, epoch);
           });
         }

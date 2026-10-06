@@ -23,6 +23,7 @@ export class CommanderController {
   private ndc = new THREE.Vector2(0, 0);
   private hasMouse = false;
   private ray = new THREE.Raycaster();
+  private cam: THREE.PerspectiveCamera | null = null;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     canvas.addEventListener('mousemove', this.mm);
@@ -61,6 +62,7 @@ export class CommanderController {
     if (!this.active || (e.button !== 0 && e.button !== 2)) return;
     this.setNdc(e);
     e.preventDefault();
+    this.pick(); // pick from the click itself: the per-frame cursor may be stale (or absent before any mousemove)
     if (this.cursor) this.onClick({ button: e.button as 0 | 2, x: this.cursor.x, z: this.cursor.z, shift: e.shiftKey });
   };
   private wh = (e: WheelEvent) => {
@@ -83,8 +85,14 @@ export class CommanderController {
     cam.position.set(pose.x, pose.y, pose.z);
     cam.rotation.set(pose.pitch, 0, 0, 'YXZ');
     cam.updateMatrixWorld(true);
+    this.cam = cam;
+    this.pick();
+  }
+
+  private pick(): void {
+    const cam = this.cam;
     this.cursor = null;
-    if (!this.hasMouse) return;
+    if (!this.hasMouse || !cam) return;
     this.ray.setFromCamera(this.ndc, cam);
     const o = this.ray.ray.origin;
     const d = this.ray.ray.direction;
