@@ -27,7 +27,7 @@ Open two browser windows, **Create room** in one, paste the 6-character code in 
 |---|---|---|
 | Move / look | WASD, mouse | WASD, mouse |
 | Primary | LMB rifle (600 RPM, 30 / 90) | LMB bite (0.55 s) |
-| Other | R reload · Shift sprint · Space jump | Space leap (25 energy) · RMB/C let go · run into walls to climb · **V** toggles the surface view assist |
+| Other | R reload · Shift sprint · Space jump | Space leap (25 energy) · RMB/C let go · hold **F** to cling to walls/ceilings (**T** switches hold/toggle) · **V** toggles the surface view assist |
 | UI | Tab scoreboard · M mute | |
 
 `?dev=1` (on the creator's URL) enables the debug room: **F3 / `** toggles the overlay (FPS, server tick/drift, RTT/jitter, input
