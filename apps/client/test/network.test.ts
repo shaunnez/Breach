@@ -8,7 +8,7 @@ import type { PlayerSnapshot } from '../src/game/network/types';
 
 const snap = (t: number, x: number, epoch = 1, alive = true): PlayerSnapshot => {
   const sim = createPlayerSim(PlayerClass.Marine, x, 0, 5, 0, 1);
-  return { id: 'p', name: 'p', seat: 0, faction: 0, connected: true, host: false, dummy: false, alive, protected: false, epoch, sim, health: 100, armour: 50, ack: 0, respawnAtMs: 0, kills: 0, deaths: 0, damage: 0, rttMs: 0, pendingCls: 255, t };
+  return { id: 'p', name: 'p', seat: 0, faction: 0, connected: true, host: false, dummy: false, alive, protected: false, epoch, sim, health: 100, armour: 50, ack: 0, respawnAtMs: 0, kills: 0, deaths: 0, damage: 0, rttMs: 0, pendingCls: 255, commanding: false, order: null, t };
 };
 
 describe('ClockSync', () => {

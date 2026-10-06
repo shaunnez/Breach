@@ -117,3 +117,23 @@ td.marine { color: #5fd8ec; } td.ripper { color: #ff7a93; }
 .actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .actions button { padding: 3px 7px; font-size: 11px; }
 @media (max-width: 760px) { .scoreboard { min-width: 0; width: 94vw; } .debug { width: 250px; } }
+
+/* ---- VS02 strategy layer ---- */
+.econ { position: absolute; top: 46px; left: 28px; background: rgba(5, 8, 12, 0.55); border-left: 3px solid var(--line); padding: 6px 10px; display: flex; flex-direction: column; gap: 2px; min-width: 230px; font-size: 0.85rem; }
+.econ.marine { border-left-color: #00e5ff; }
+.econ.ripper { border-left-color: #9a5cff; }
+.econ .res b { font-size: 1.5rem; }
+.econ small { color: var(--dim); }
+.econ .well { letter-spacing: 0.06em; font-size: 0.78rem; }
+.econ .well.own { color: var(--good); }
+.econ .well.enemy { color: #ff6b6b; }
+.econ .well.free { color: #ffb36b; }
+.econ .cmdr { color: var(--dim); font-size: 0.72rem; }
+.prompt { position: absolute; top: 58%; left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.6); padding: 5px 12px; border-radius: 4px; letter-spacing: 0.06em; }
+.order { position: absolute; top: 14%; left: 50%; transform: translateX(-50%); color: #00e5ff; letter-spacing: 0.12em; font-weight: 700; }
+.commander { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); background: rgba(5, 8, 12, 0.8); border: 1px solid #00e5ff55; padding: 4px 10px; display: flex; flex-direction: column; gap: 4px; align-items: center; pointer-events: auto; max-width: 92vw; }
+.commander .title { letter-spacing: 0.25em; font-weight: 800; color: #00e5ff; align-self: center; }
+.commander .row { display: flex; gap: 8px; align-items: center; white-space: nowrap; }
+.commander button { padding: 3px 10px; }
+.commander .help { font-size: 0.72rem; text-align: center; }
+@media (max-height: 520px) { .commander .help { display: none; } .prompt { top: 50%; } .econ { font-size: 0.7rem; min-width: 0; } .econ .res b { font-size: 1.1rem; } }

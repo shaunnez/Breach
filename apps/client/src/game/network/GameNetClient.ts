@@ -1,8 +1,8 @@
 import { Client, type Room } from 'colyseus.js';
-import { MSG, NET, type DevAction, type GameEvent, type InputFrame, type PongMsg, type ServerPingMsg, normalizeRoomCode } from '@breach/shared';
+import { MSG, NET, type BuildRequest, type DevAction, type GameEvent, type InputFrame, type OrderMsg, type PongMsg, type ServerPingMsg, normalizeRoomCode } from '@breach/shared';
 import { ClockSync } from './ClockSync';
 import { NetSim, type NetSimConfig } from './NetSim';
-import { extractPlayer, type ConnectionStatus, type MatchView, type NetCallbacks } from './types';
+import { extractEconomy, extractPlayer, type ConnectionStatus, type MatchView, type NetCallbacks } from './types';
 
 export interface ConnectOptions {
   name: string;
@@ -140,6 +140,7 @@ export class GameNetClient {
       dev: state.dev,
       matchStartMs: state.matchStartMs,
       players,
+      economy: extractEconomy(state),
     };
   }
 
@@ -177,8 +178,22 @@ export class GameNetClient {
   send(type: string, msg?: unknown): void {
     this.sim.up(() => this.room?.send(type, msg));
   }
-  setClass(cls: 0 | 1): void {
+  setClass(cls: 0 | 1 | 2): void {
     this.send(MSG.setClass, cls);
+  }
+  /** VS02: enter / exit Commander mode (server checks role, reach, occupancy). */
+  command(action: 'enter' | 'exit'): void {
+    this.send(MSG.command, { action });
+  }
+  private buildSeq = 0;
+  /** VS02: BuildRequest; the answer arrives as a `build-result` event. Returns the requestId. */
+  build(structure: BuildRequest['structure'], resourceNodeId: string): number {
+    const requestId = ++this.buildSeq;
+    this.send(MSG.build, { requestId, structure, resourceNodeId } satisfies BuildRequest);
+    return requestId;
+  }
+  order(m: OrderMsg): void {
+    this.send(MSG.order, m);
   }
   start(): void {
     this.send(MSG.start);

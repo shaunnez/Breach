@@ -13,6 +13,7 @@ import {
   StructureState,
   WEAVER,
   closestOnAabb,
+  commanderFrame,
   createEconomy,
   damageStructure,
   findNode,
@@ -958,7 +959,3 @@ export class Simulation {
 }
 
 
-/** While commanding, the body stays at the console: every frame is simulated as "no input, facing the console". */
-export function commanderFrame(f: InputFrame): InputFrame {
-  return { ...f, moveX: 0, moveZ: 0, yaw: COMMAND_CONSOLE.yaw, pitch: 0, jump: false, sprint: false, primary: false, secondary: false, reload: false, interact: false };
-}

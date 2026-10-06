@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { PlayerClass, MATCH, NET } from '@breach/shared';
+import { CLASS_LABELS, ECONOMY, Faction, PlayerClass, MATCH, NET, factionOf } from '@breach/shared';
 import { session } from '../app/session';
 import { setState, useStore } from '../app/store';
 import { GameScreen } from './GameScreen';
@@ -41,7 +41,7 @@ function Landing() {
       <h1>
         BREACH<span>//</span>HIVE
       </h1>
-      <p className="tag">Combat Truth Slice · Marine versus Ripper · 2–4 players</p>
+      <p className="tag">Strategy Truth Slice · Expedition versus Bloom · hold the resource well · 2–4 players</p>
       <section className="card">
         <label>
           Callsign
@@ -83,6 +83,12 @@ function Landing() {
             <b>Marine:</b> LMB fire · R reload · Shift sprint · Space jump
           </li>
           <li>
+            <b>Commander:</b> a Marine presses E at the spawn console · overhead view · B place Extractor on the well ({ECONOMY.extractorCost}) · RMB order/ping
+          </li>
+          <li>
+            <b>Weaver:</b> LMB claw · RMB heal pulse · E at the well grows a Harvester ({ECONOMY.harvesterCost}) · slow, cannot climb
+          </li>
+          <li>
             <b>Ripper:</b> hold F to cling to walls/ceilings (T: hold/toggle) · LMB bite · Space leap (costs energy) · RMB/C let go · V toggle surface view assist
           </li>
         </ul>
@@ -102,7 +108,9 @@ function Lobby() {
   const amHost = match.hostId === me;
   const mine = players.find((p) => p.id === me);
   const count = (c: number) => players.filter((p) => p.sim.cls === c).length;
-  const full = (c: number) => count(c) >= Math.ceil(MATCH.maxPlayers / 2) && mine?.sim.cls !== c;
+  const side = (f: Faction) => players.filter((p) => factionOf(p.sim.cls) === f).length;
+  const cap = Math.ceil(MATCH.maxPlayers / 2);
+  const full = (c: PlayerClass) => side(factionOf(c)) >= cap && (!mine || factionOf(mine.sim.cls) !== factionOf(c));
   const link = `${location.origin}/play?room=${match.roomCode}`;
   return (
     <main className="landing lobby">
@@ -129,18 +137,23 @@ function Lobby() {
                 <td>
                   {p.name} {p.host && <em>host</em>} {!p.connected && <em className="warn">reconnecting</em>}
                 </td>
-                <td className={p.sim.cls === PlayerClass.Marine ? 'marine' : 'ripper'}>{p.sim.cls === PlayerClass.Marine ? 'Expedition Marine' : 'Bloom Ripper'}</td>
+                <td className={p.sim.cls === PlayerClass.Marine ? 'marine' : 'ripper'}>
+                  {p.sim.cls === PlayerClass.Marine ? 'Expedition' : 'Bloom'} {CLASS_LABELS[p.sim.cls]}
+                </td>
                 <td>{p.rttMs ? `${p.rttMs} ms` : '—'}</td>
               </tr>
             ))}
           </tbody>
         </table>
         <div className="row">
-          <button className={mine?.sim.cls === PlayerClass.Marine ? 'primary marine' : 'marine'} disabled={full(0)} onClick={() => session.setClass(PlayerClass.Marine)} data-testid="pick-marine">
-            Marine ({count(0)}/2)
+          <button className={mine?.sim.cls === PlayerClass.Marine ? 'primary marine' : 'marine'} disabled={full(PlayerClass.Marine)} onClick={() => session.setClass(PlayerClass.Marine)} data-testid="pick-marine">
+            Marine ({count(0)}) · Expedition {side(Faction.Expedition)}/{cap}
           </button>
-          <button className={mine?.sim.cls === PlayerClass.Ripper ? 'primary ripper' : 'ripper'} disabled={full(1)} onClick={() => session.setClass(PlayerClass.Ripper)} data-testid="pick-ripper">
-            Ripper ({count(1)}/2)
+          <button className={mine?.sim.cls === PlayerClass.Ripper ? 'primary ripper' : 'ripper'} disabled={full(PlayerClass.Ripper)} onClick={() => session.setClass(PlayerClass.Ripper)} data-testid="pick-ripper">
+            Ripper ({count(1)})
+          </button>
+          <button className={mine?.sim.cls === PlayerClass.Weaver ? 'primary ripper' : 'ripper'} disabled={full(PlayerClass.Weaver)} onClick={() => session.setClass(PlayerClass.Weaver)} data-testid="pick-weaver">
+            Weaver ({count(2)}) · Bloom {side(Faction.Bloom)}/{cap}
           </button>
         </div>
         <div className="row">
@@ -153,7 +166,7 @@ function Lobby() {
           )}
           <button onClick={() => void session.leave()}>Leave</button>
         </div>
-        {count(0) === 0 || count(1) === 0 ? <p className="hint">Tip: pick opposite sides for a Marine vs Ripper fight.</p> : null}
+        {side(Faction.Expedition) === 0 || side(Faction.Bloom) === 0 ? <p className="hint">Tip: pick opposite sides. Win fights to hold the resource well.</p> : null}
         {notice && performance.now() - notice.at < 4000 && <div className="error">{notice.text}</div>}
         {dev && <p className="devnote">Dev room: debug tools enabled (F3 in match).</p>}
       </section>

@@ -29,6 +29,20 @@ export interface HudState {
   surface: number;
   locked: boolean;
   rtt: number;
+  // ---- VS02 strategy layer ----
+  faction: number;
+  commanding: boolean;
+  buildMode: boolean;
+  selected: number;
+  /** contextual interaction prompt ("E — enter Command Core", ...) */
+  prompt: string;
+  /** Commander order for this Marine ("Waypoint · 12 m") */
+  orderText: string;
+  resources: number;
+  income: number;
+  enemyIncome: number;
+  commanderName: string;
+  well: { label: string; faction: number; hp: number; maxHp: number; progress: number; active: boolean } | null;
 }
 
 export interface DebugState {
@@ -58,6 +72,8 @@ export interface DebugState {
   simJitterMs: number;
   viewAssist: boolean;
   toggles: Record<string, boolean>;
+  /** VS02 economy (server state) */
+  econ: { resExp: number; resBloom: number; incExp: number; incBloom: number; commander: string; structures: string[]; lastBuild: string };
 }
 
 export interface UiState {
@@ -99,6 +115,17 @@ export const emptyHud = (): HudState => ({
   surface: 0,
   locked: false,
   rtt: 0,
+  faction: 0,
+  commanding: false,
+  buildMode: false,
+  selected: 0,
+  prompt: '',
+  orderText: '',
+  resources: 0,
+  income: 0,
+  enemyIncome: 0,
+  commanderName: '',
+  well: null,
 });
 
 const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');

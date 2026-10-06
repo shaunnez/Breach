@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MARINE, PlayerClass, RIPPER, SurfaceState, clamp, DEG, eyePosition, type PlayerSim } from '@breach/shared';
+import { MARINE, PlayerClass, RIPPER, SurfaceState, WEAVER, clamp, DEG, eyePosition, type PlayerSim } from '@breach/shared';
 
 /**
  * First-person camera. Marine: eye follows the controller (not the weapon) with restrained bob.
@@ -26,7 +26,7 @@ export class CameraRig {
     this.nz = s.nz;
     this.roll = 0;
     this.leapKick = 0;
-    this.fov = s.cls === PlayerClass.Ripper ? RIPPER.fov : MARINE.fov;
+    this.fov = s.cls === PlayerClass.Ripper ? RIPPER.fov : s.cls === PlayerClass.Weaver ? WEAVER.fov : MARINE.fov;
   }
 
   kickLeap(): void {
@@ -39,7 +39,7 @@ export class CameraRig {
   /** s: interpolated predicted state (position already blended); view yaw/pitch are live. */
   update(cam: THREE.PerspectiveCamera, s: PlayerSim, yaw: number, pitch: number, offset: THREE.Vector3, dt: number): number {
     const ripper = s.cls === PlayerClass.Ripper;
-    const targetFov = ripper ? RIPPER.fov : s.sprinting ? MARINE.sprintFov : MARINE.fov;
+    const targetFov = ripper ? RIPPER.fov : s.cls === PlayerClass.Weaver ? WEAVER.fov : s.sprinting ? MARINE.sprintFov : MARINE.fov;
     this.fov += (targetFov - this.fov) * (1 - Math.exp(-dt / 0.08));
 
     // smoothed surface normal (render-only; the sim normal can change discretely at concave corners)

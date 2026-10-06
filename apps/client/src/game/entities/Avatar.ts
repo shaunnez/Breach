@@ -258,6 +258,89 @@ function makeRipper(): AvatarLike {
   };
 }
 
+
+/** VS02 Weaver: a squat, slow Bloom builder. Feet-centre origin (walker), -Z forward, ~1.3 m tall. */
+function makeWeaver(): AvatarLike {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  const torso = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 10), M.chitin);
+  torso.scale.set(1, 0.78, 1.15);
+  torso.position.set(0, 0.72, 0.05);
+  body.add(torso);
+  // glowing builder sac on the back: the Weaver's silhouette read
+  const sac = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 8), M.violet);
+  sac.position.set(0, 0.98, 0.28);
+  body.add(sac);
+  for (let i = 0; i < 4; i++) {
+    const p = box(0.5 - i * 0.06, 0.05, 0.12, M.bone, 0, 1.02 - i * 0.05, -0.24 + i * 0.1);
+    p.rotation.x = -0.25;
+    body.add(p);
+  }
+  const head = new THREE.Group();
+  head.position.set(0, 0.74, -0.42);
+  body.add(head);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), M.bone);
+  skull.scale.set(1, 0.8, 1.2);
+  head.add(skull);
+  head.add(box(0.2, 0.05, 0.08, M.crimson, 0, -0.08, -0.14));
+  // four stubby legs + two builder arms
+  const legs: THREE.Group[] = [];
+  for (const [x, z] of [
+    [-0.32, -0.22],
+    [0.32, -0.22],
+    [-0.32, 0.3],
+    [0.32, 0.3],
+  ] as const) {
+    const l = limb(0.12, 0.55, 0.12, M.chitin);
+    l.position.set(x, 0.58, z);
+    l.add(box(0.14, 0.08, 0.16, M.bone, 0, -0.56, -0.03));
+    body.add(l);
+    legs.push(l);
+  }
+  const arms: THREE.Group[] = [];
+  for (const side of [-1, 1]) {
+    const a = limb(0.06, 0.42, 0.06, M.chitin);
+    a.position.set(side * 0.24, 0.7, -0.36);
+    a.rotation.set(-1.0, 0, side * 0.25);
+    a.add(box(0.05, 0.12, 0.05, M.bone, 0, -0.45, 0));
+    body.add(a);
+    arms.push(a);
+  }
+
+  let phase = 0;
+  let pulse = 0;
+  let flash = 0;
+  let deathT = 0;
+  return {
+    root,
+    update(dt, speed, _surface, alive, pitch = 0) {
+      const moving = Math.min(1, speed / 4);
+      phase += dt * (4 + speed * 1.6);
+      pulse += dt * 3;
+      flash = Math.max(0, flash - dt * 4);
+      legs.forEach((l, i) => (l.rotation.x = Math.sin(phase + (i % 2 === 0 ? 0 : Math.PI) + (i > 1 ? Math.PI : 0)) * 0.5 * moving));
+      arms.forEach((a, i) => (a.rotation.x = -1.0 - flash * 0.9 + Math.sin(phase + i * Math.PI) * 0.15 * moving));
+      sac.scale.setScalar(1 + Math.sin(pulse) * 0.05);
+      head.rotation.x = pitch * 0.6;
+      torso.position.y = 0.72 + Math.abs(Math.sin(phase)) * 0.02 * moving;
+      if (alive) {
+        deathT = 0;
+        body.rotation.z = 0;
+        body.position.y = 0;
+      } else {
+        deathT = Math.min(1, deathT + dt * 1.6);
+        body.rotation.z = deathT * 1.4;
+        body.position.y = -deathT * 0.2;
+      }
+    },
+    setFlash(v: number) {
+      flash = v;
+    },
+    dispose: () => disposeTree(root),
+  };
+}
+
 export function makeAvatar(cls: PlayerClass): AvatarLike & { dispose(): void } {
-  return cls === PlayerClass.Marine ? makeMarine() : makeRipper();
+  return cls === PlayerClass.Marine ? makeMarine() : cls === PlayerClass.Weaver ? makeWeaver() : makeRipper();
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { MATCH, PlayerClass, RIPPER } from '@breach/shared';
+import { CLASS_LABELS, ECONOMY, MATCH, PlayerClass, STRUCTURE_COST, WEAVER, maxHealthOf } from '@breach/shared';
 import { session } from '../app/session';
 import { useStore } from '../app/store';
 
@@ -19,6 +19,8 @@ export function Hud() {
   }, []);
   const now = performance.now();
   const ripper = hud.cls === PlayerClass.Ripper;
+  const weaver = hud.cls === PlayerClass.Weaver;
+  const alien = hud.cls !== PlayerClass.Marine;
   const amHost = match?.hostId === me;
   const elapsed = match ? Math.max(0, (session.net.clock.serverNow(now) - match.matchStartMs) / 1000) : 0;
   const remaining = Math.max(0, SOFT_TIMER_SEC - elapsed);
@@ -30,14 +32,16 @@ export function Hud() {
 
   return (
     <div className="hud">
-      {hud.alive && (
+      {hud.alive && match?.phase === 'playing' && <StrategyPanel />}
+      {hud.alive && hud.commanding && <CommanderPanel />}
+      {hud.alive && !hud.commanding && (
         <>
           <div className={`vignette ${flashAge < 300 ? 'on' : ''}`} style={{ opacity: flashAge < 300 ? 1 - flashAge / 300 : 0 }} />
           {hud.damageDirs.map((d) => (
             <div key={d.at} className="dmgdir" style={{ transform: `rotate(${(-d.angle * 180) / Math.PI}deg)`, opacity: Math.max(0, 1 - (now - d.at) / 1200) }} />
           ))}
-          <div className={`crosshair ${ripper ? 'ripper' : 'marine'}`}>
-            {!ripper ? (
+          <div className={`crosshair ${alien ? 'ripper' : 'marine'}`}>
+            {!alien ? (
               <>
                 <i style={{ transform: `translate(-50%, calc(-50% - ${spreadPx}px))` }} />
                 <i style={{ transform: `translate(-50%, calc(-50% + ${spreadPx}px))` }} />
@@ -52,10 +56,10 @@ export function Hud() {
 
           <div className="stats left">
             <div className="bar health">
-              <span style={{ width: `${(hud.health / (ripper ? RIPPER.health : 100)) * 100}%` }} />
+              <span style={{ width: `${(hud.health / maxHealthOf(hud.cls)) * 100}%` }} />
               <label>HP {hud.health}</label>
             </div>
-            {!ripper && (
+            {!alien && (
               <div className="bar armour">
                 <span style={{ width: `${(hud.armour / 50) * 100}%` }} />
                 <label>ARMOUR {hud.armour}</label>
@@ -67,10 +71,18 @@ export function Hud() {
                 <label>ENERGY {Math.floor(hud.energy)} {hud.leapReady ? '· LEAP' : ''}</label>
               </div>
             )}
+            {weaver && (
+              <div className={`bar energy ${hud.energy >= WEAVER.healPulseCost ? 'ready' : ''}`}>
+                <span style={{ width: `${hud.energy}%` }} />
+                <label>ENERGY {Math.floor(hud.energy)} {hud.energy >= WEAVER.healPulseCost ? '· RMB HEAL' : ''}</label>
+              </div>
+            )}
             {hud.protected && <div className="shield">SPAWN PROTECTION — attacking cancels it</div>}
           </div>
           <div className="stats right">
-            {!ripper ? (
+            {weaver ? (
+              <div className="surface">WEAVER · LMB claw · RMB heal pulse ({WEAVER.healPulseCost})</div>
+            ) : !ripper ? (
               <>
                 <div className="ammo">
                   {hud.ammo}
@@ -95,11 +107,11 @@ export function Hud() {
           <div className="big">ELIMINATED</div>
           <div>Respawn in {hud.respawnIn.toFixed(1)}s</div>
           <div className="sub">{MATCH.respawnSec}s respawn · {MATCH.spawnProtectionSec}s protection</div>
-          <div className="sub">Press 1 = Marine · 2 = Ripper to change side on your next spawn</div>
+          <div className="sub">Press 1 = Marine · 2 = Ripper · 3 = Weaver to change class on your next spawn</div>
         </div>
       )}
 
-      {hud.alive && !hud.locked && (
+      {hud.alive && !hud.locked && !hud.commanding && (
         <div className="pause" onClick={() => session.runtime?.requestLock()} data-testid="clickplay">
           <div className="big">CLICK TO PLAY</div>
           <div className="sub">Mouse capture needed · Esc to release · Tab for scoreboard</div>
@@ -157,7 +169,10 @@ function Scoreboard() {
                 {p.name}
                 {p.dummy ? ' (dummy)' : ''} {!p.connected && <em className="warn">reconnecting</em>}
               </td>
-              <td className={p.sim.cls === PlayerClass.Marine ? 'marine' : 'ripper'}>{p.sim.cls === PlayerClass.Marine ? 'Marine' : 'Ripper'}</td>
+              <td className={p.sim.cls === PlayerClass.Marine ? 'marine' : 'ripper'}>
+                {CLASS_LABELS[p.sim.cls]}
+                {p.commanding ? ' (Commander)' : ''}
+              </td>
               <td>{p.kills}</td>
               <td>{p.deaths}</td>
               <td>{p.damage}</td>
@@ -166,6 +181,65 @@ function Scoreboard() {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** VS02: team resources, the well's state and contextual prompts. */
+function StrategyPanel() {
+  const hud = useStore((s) => s.hud);
+  const exp = hud.faction === 0;
+  const w = hud.well;
+  const own = w && w.faction === hud.faction;
+  return (
+    <>
+      <div className={`econ ${exp ? 'marine' : 'ripper'}`} data-testid="econ">
+        <div className="res">
+          <b data-testid="resources">{Math.floor(hud.resources)}</b> <small>resources</small>
+        </div>
+        <div className="inc">
+          +{hud.income.toFixed(1)}/s <small>· enemy +{hud.enemyIncome.toFixed(1)}/s</small>
+        </div>
+        <div className={`well ${w ? (own ? 'own' : 'enemy') : 'free'}`} data-testid="well">
+          {w ? (
+            <>
+              WELL · {own ? 'ours' : 'enemy'} {w.label} {Math.round(w.hp)}/{w.maxHp}
+              {!w.active && ` · building ${Math.round(w.progress * 100)}%`}
+            </>
+          ) : (
+            <>WELL · unclaimed ({exp ? `Extractor ${STRUCTURE_COST.extractor}` : `Harvester ${STRUCTURE_COST.harvester}`})</>
+          )}
+        </div>
+        {exp && <div className="cmdr">{hud.commanderName ? `Commander: ${hud.commanderName}` : 'No Commander: a Marine can take the Command Core (spawn console)'}</div>}
+      </div>
+      {hud.orderText && <div className="order">{hud.orderText}</div>}
+      {hud.prompt && (
+        <div className="prompt" data-testid="prompt">
+          {hud.prompt}
+        </div>
+      )}
+    </>
+  );
+}
+
+function CommanderPanel() {
+  const hud = useStore((s) => s.hud);
+  const afford = hud.resources >= STRUCTURE_COST.extractor;
+  return (
+    <div className="commander" data-testid="commander">
+      <div className="row">
+        <span className="title">COMMAND</span>
+        <button className={hud.buildMode ? 'primary' : ''} disabled={!afford} onClick={() => session.runtime?.setBuildMode(!hud.buildMode)} data-testid="build-extractor">
+          {hud.buildMode ? 'Click the well…' : `Extractor (${STRUCTURE_COST.extractor}) · B`}
+        </button>
+        <button onClick={() => session.net.command('exit')} data-testid="leave-command">
+          Leave · E
+        </button>
+      </div>
+      <div className="sub help">
+        WASD pan · wheel/Q/Z zoom · LMB select Marines (shift adds) · RMB {hud.selected ? `move ${hud.selected} selected` : 'ping'} · build {ECONOMY.structureBuildSec}s, +
+        {ECONOMY.structureIncomePerSec}/s · your body stays at the console and can be killed
+      </div>
     </div>
   );
 }

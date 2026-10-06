@@ -94,7 +94,7 @@ class Session {
   }
 
   setClass(cls: PlayerClass): void {
-    this.net.setClass(cls === PlayerClass.Marine ? 0 : 1);
+    this.net.setClass(cls);
   }
 }
 

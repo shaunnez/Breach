@@ -30,6 +30,8 @@ function hazardTexture(): THREE.CanvasTexture {
 
 export class MapDecor {
   readonly group = new THREE.Group();
+  /** ceiling-mounted dressing, hidden in the Commander's overhead view */
+  readonly overhead = new THREE.Group();
 
   constructor() {
     const haz = hazardTexture();
@@ -68,8 +70,9 @@ export class MapDecor {
     // ceiling light fixtures at the lighting rig positions (emissive panels, so light sources are readable)
     for (const l of MAP_LIGHTS) {
       const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(l.color).multiplyScalar(1.4) });
-      add(box(0.9, 0.06, 0.35, mat, l.x, l.y + 0.62, l.z));
+      this.overhead.add(box(0.9, 0.06, 0.35, mat, l.x, l.y + 0.62, l.z));
     }
+    this.group.add(this.overhead);
 
     // pipe runs along the overhead pipe/beam props (cosmetic cylinders slightly inside the collision boxes)
     const pipeMat = new THREE.MeshStandardMaterial({ color: 0x6b7480, roughness: 0.35, metalness: 0.8 });

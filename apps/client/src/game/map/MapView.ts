@@ -74,25 +74,30 @@ function tintFor(b: Box): number {
 
 export class MapView {
   readonly group = new THREE.Group();
+  /** ceiling slabs: hidden in the Commander's overhead view (bible section 14: same map, real projection) */
+  readonly ceilings = new THREE.Group();
   readonly lights: THREE.PointLight[] = [];
 
   constructor() {
     const tex = makeGridTexture();
-    const byTint = new Map<number, THREE.BufferGeometry[]>();
+    const byTint = new Map<string, { tint: number; ceiling: boolean; geoms: THREE.BufferGeometry[] }>();
     for (const b of MAP_BOXES) {
       const tint = b.kind === 'floor' ? 0x3c4046 : tintFor(b);
-      const arr = byTint.get(tint) ?? [];
-      arr.push(boxGeometry(b));
-      byTint.set(tint, arr);
+      const ceiling = b.kind === 'ceiling';
+      const key = `${tint}:${ceiling}`;
+      const e = byTint.get(key) ?? { tint, ceiling, geoms: [] };
+      e.geoms.push(boxGeometry(b));
+      byTint.set(key, e);
     }
-    for (const [tint, geoms] of byTint) {
+    this.group.add(this.ceilings);
+    for (const { tint, ceiling, geoms } of byTint.values()) {
       const merged = mergeGeometries(geoms, false);
       for (const g of geoms) g.dispose();
       if (!merged) continue;
       const mat = new THREE.MeshStandardMaterial({ map: tex, color: tint, roughness: 0.82, metalness: 0.25 });
       const mesh = new THREE.Mesh(merged, mat);
       mesh.matrixAutoUpdate = false;
-      this.group.add(mesh);
+      (ceiling ? this.ceilings : this.group).add(mesh);
     }
 
     // readable lighting: a dim hemisphere + coloured point lights per space (no shadows: browser budget)

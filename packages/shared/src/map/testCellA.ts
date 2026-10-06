@@ -186,7 +186,7 @@ function buildBoxes(): Box[] {
     { side: 'S', c: 30, w: 2.4 },
   ]);
   B.push(mk(28.8, 0, 14.8, 31.2, 0.5, 17.2, 'prop')); // resource well plinth (VS02: the active well)
-  B.push(mk(29.3, 0.5, 15.3, 30.7, 2.1, 16.7, 'prop')); // well head: structures are built around it (D-30)
+  B.push(mk(29.45, 0.5, 15.45, 30.55, 2.1, 16.55, 'prop')); // well head: structures are built around it (D-30)
   B.push(mk(24, 4.2, 15.9, 36, 4.6, 16.4, 'prop')); // overhead pipe
   B.push(mk(24, 2.3, 11, 36, 2.6, 13.2, 'ledge')); // upper maintenance ledge
   for (let i = 0; i < 8; i++) {

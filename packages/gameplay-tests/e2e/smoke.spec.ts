@@ -22,7 +22,7 @@ async function newPlayer(browser: Browser, name: string, query = ''): Promise<Pa
   return page;
 }
 
-async function startMatch(browser: Browser, opts: { dev?: boolean; lag?: number; aClass?: 'marine' | 'ripper'; bClass?: 'marine' | 'ripper' } = {}) {
+async function startMatch(browser: Browser, opts: { dev?: boolean; lag?: number; aClass?: 'marine' | 'ripper' | 'weaver'; bClass?: 'marine' | 'ripper' | 'weaver' } = {}) {
   const q = [opts.dev ? 'dev=1' : '', opts.lag ? `lag=${opts.lag}&jitter=${Math.round(opts.lag / 5)}` : ''].filter(Boolean).join('&');
   const a = await newPlayer(browser, 'Alice', q);
   await a.click('[data-testid=create]');
@@ -135,4 +135,55 @@ test('with 100 ms simulated RTT the predicted player stays in agreement with the
   expect(s.rtt).toBeGreaterThan(70);
   expect(s.maxErrorM).toBeLessThan(0.05);
   expect(s.surfaceBreaks).toBe(0);
+});
+
+// ---- VS02: Strategy Truth Slice ---------------------------------------------------------------
+
+const economy = (p: Page) => p.evaluate(() => window.__breach.view.economy as { resources: number[]; income: number[]; structures: { type: string; state: number; progress: number; hp: number }[]; commanderId: string });
+
+test('Commander enters at the console (E), places an Extractor on the well, it builds and pays income', async ({ browser }) => {
+  const { a } = await startMatch(browser, { dev: true, aClass: 'marine', bClass: 'ripper' });
+  await a.evaluate(() => window.__breach.net.dev({ action: 'teleport', room: 'console' }));
+  await a.waitForFunction(() => Math.hypot(window.__breach.ctrl.sim.px - 6, window.__breach.ctrl.sim.pz - 2.6) < 0.2);
+  await expect(a.locator('[data-testid=prompt]')).toContainText('Command Core');
+  await a.keyboard.press('KeyE');
+  await a.waitForFunction(() => window.__breach.me?.commanding === true);
+  await expect(a.locator('[data-testid=commander]')).toBeVisible();
+  expect((await economy(a)).commanderId).toBe(await a.evaluate(() => window.__breach.net.sessionId));
+  // hologram placement: open build mode, then click the well where the overhead camera projects it
+  await a.click('[data-testid=build-extractor]');
+  await a.waitForTimeout(300);
+  const pt = await a.evaluate(() => {
+    const rt = window.__breach;
+    const cam = rt.renderer.camera;
+    const v = cam.position.clone().set(30, 0.5, 16).project(cam);
+    const r = rt.renderer.gl.domElement.getBoundingClientRect();
+    return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
+  });
+  await a.mouse.click(pt.x, pt.y);
+  await a.waitForFunction(() => window.__breach.view.economy.structures.length === 1);
+  const e1 = await economy(a);
+  expect(e1.structures[0].type).toBe('extractor');
+  expect(e1.resources[0]).toBeLessThan(10.5); // 20 - 10, plus no income while building
+  // 6 s build, then +0.6/s
+  await a.waitForFunction(() => window.__breach.view.economy.structures[0]?.state === 1, undefined, { timeout: 30_000 });
+  await a.waitForFunction(() => window.__breach.view.economy.resources[0] > 11, undefined, { timeout: 30_000 });
+  expect((await economy(a)).income[0]).toBeCloseTo(0.6, 5);
+  await expect(a.locator('[data-testid=well]')).toContainText('ours');
+  // leave the Command Core with E
+  await a.keyboard.press('KeyE');
+  await a.waitForFunction(() => window.__breach.me?.commanding === false);
+});
+
+test('Weaver walks to the well and grows a Harvester with E; the Bloom earns from it', async ({ browser }) => {
+  const { b } = await startMatch(browser, { dev: true, aClass: 'marine', bClass: 'weaver' });
+  expect(await b.evaluate(() => window.__breach.ctrl.sim.cls)).toBe(2);
+  await b.evaluate(() => window.__breach.net.dev({ action: 'teleport', room: 'well' }));
+  await b.waitForFunction(() => Math.hypot(window.__breach.ctrl.sim.px - 27.6, window.__breach.ctrl.sim.pz - 16) < 0.2);
+  await expect(b.locator('[data-testid=prompt]')).toContainText('Harvester');
+  await b.keyboard.press('KeyE');
+  await b.waitForFunction(() => window.__breach.view.economy.structures[0]?.type === 'harvester');
+  expect((await economy(b)).resources[1]).toBeLessThan(10.5);
+  await b.waitForFunction(() => window.__breach.view.economy.resources[1] > 11, undefined, { timeout: 30_000 });
+  await expect(b.locator('[data-testid=well]')).toContainText('ours Harvester');
 });
