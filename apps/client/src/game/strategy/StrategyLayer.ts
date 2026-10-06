@@ -110,7 +110,7 @@ function buildBiomass(seed: number): THREE.Group {
 function hpBar(): { bar: THREE.Group; fill: THREE.Mesh } {
   const bar = new THREE.Group();
   const bg = mesh(new THREE.PlaneGeometry(1.6, 0.16), new THREE.MeshBasicMaterial({ color: 0x0b0e12, transparent: true, opacity: 0.8, depthTest: false }));
-  const fill = mesh(new THREE.PlaneGeometry(1.52, 0.1), new THREE.MeshBasicMaterial({ color: 0x40ff80, depthTest: false }), 0, 0, 0.001);
+  const fill = mesh(new THREE.PlaneGeometry(1.52, 0.1), new THREE.MeshBasicMaterial({ color: 0x40ff80, depthTest: false, transparent: true }) /* same pass as the background so renderOrder applies */, 0, 0, 0.001);
   bg.renderOrder = 10;
   fill.renderOrder = 11;
   bar.add(bg, fill);

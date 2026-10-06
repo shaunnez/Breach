@@ -134,3 +134,58 @@ noticed the old socket closed, so the reconnect token is briefly "invalid". `Gam
 (found by the Playwright reload test against the built artifact) instead of giving up on the first rejection.
 
 **D-24 — Dev-tool dummy placement** walks 4 → 1.7 m in front of the requester until the spot is free (spawn points sit close to walls).
+
+## VS02 — Strategy Truth Slice
+
+**D-26 — Economy/structure rules are pure functions in `@breach/shared` (`economy.ts`); the server holds the only live `EconomyState`.**
+Build validation, construction timers, income, damage and healing of structures are deterministic data + functions so they can be
+unit-tested in isolation. Authority is unchanged (D-03): only `Simulation` mutates economy state, clients never send resources or
+structure state, and the client imports the helpers solely for presentation hints (hologram valid/invalid, cost labels).
+
+**D-27 — Structure values the bible leaves open (`STRUCTURE`).** Extractor and Harvester: 600 HP; a structure starts at 25 % HP and grows
+to full linearly over the 6 s build; a destroyed structure frees the well with no refund. Hurt volume: an AABB 2.3 × 2.6 × 2.3 m around the
+well head (not lag-compensated: structures never move). Any structure stops rifle rounds; only the opposing side damages it. Bites/claws hit
+a structure only when no player is in the sweep. 600 HP ≈ 6 s of a Marine's sustained fire or 11 Ripper bites, long enough that the owner can
+respond, short enough that a raid can succeed. *Tuning value, not a design claim.*
+
+**D-28 — Weaver (bible section 34) as a slow ground walker sharing the Marine's AABB controller (`WalkerProfile`).** 150 HP, 4.0 m/s, no
+sprint, collider r 0.4 × 1.3 m (cannot use the 1.05 m vent; does not climb). Weak melee (LMB) 20 damage every 0.7 s using the bite's swept
+sphere (reach 1.4 m, ±40°). Heal pulse (RMB, held repeats) costs 40 of 100 energy (regen 12/s after 0.6 s), 2 s cooldown, heals Bloom players
+30 HP and Bloom structures 60 HP within 5 m. Builds a Harvester with **E** within 3 m of the well (a `BuildRequest`). Cooldown/energy live in the
+shared step (predicted); healing is server-only.
+
+**D-29 — Commander mode is a state of a Marine, not a lobby class.** A living Marine within 1.8 m of the Command Core console (Marine spawn,
+north wall) presses **E**; the server validates role / reach / phase / single seat, snaps the body to the console, bumps the input epoch, and
+from then on simulates every frame as `commanderFrame(f)` (no movement or fire, facing the console). The client predicts the same function, so
+commanding adds zero corrections (soak: 0). The body stays at the console and **can be killed**; death, disconnect, a dev teleport or a class
+change ends Commander mode. One Commander at a time. Orders: LMB selects Marines (client-side selection), RMB sends a *move* waypoint to the
+selected Marines or a team *ping* when none are selected; both live 30 s and are shown only to the Expedition. Command/build/order messages are
+rate limited to 12/s per player. Overhead camera: altitude 8–24 m, pitch 55–70° with zoom, fixed rotation looking north, FOV 70, WASD pan, wheel
+or Q/Z zoom; ceiling slabs and ceiling dressing are hidden while commanding (same map, real projection).
+
+**D-30 — Map additions.** The Resource Room well plinth gains a static well head (1.1 × 1.1 m, to 2.1 m) that structures are modelled around,
+so structures need no dynamic colliders and the prediction world stays static (D-02). The Command Core console is a 1.4 × 1.1 m box against the
+Marine spawn's north wall. Dev teleports `console` and `well` were added.
+
+**D-31 — Class guard extended per side.** D-21's "max two humans per class" becomes "max two humans per *side*": Rippers and Weavers share the
+Bloom's two seats; Commander is limited to one by the console. Respawn class keys are 1 Marine / 2 Ripper / 3 Weaver.
+
+**D-32 — `BuildRequest.structure` is `'extractor' | 'harvester'`.** The Weaver uses the same request as the Commander. Server checks, in order:
+well-formed → match phase → role (Extractor: the current Commander; Harvester: a Weaver) → alive → valid well → well free → funds → (Harvester)
+within reach. Each request is answered to the requester with a `build-result` event carrying the reason (`wrong-role`, `invalid-node`,
+`node-occupied`, `insufficient-resources`, `wrong-phase`, `out-of-reach`, `dead`, `malformed`). Bible 15's "build accepted/rejected" event.
+
+**D-33 — OPEN (needs the owner): resources have no sink besides collectors in VS02.** The bible's scope (sections 32–35) adds income but
+nothing to spend it on except rebuilding a collector. The "economic advantage" is therefore visible (HUD shows both sides' income, telemetry) but not yet
+*usable*; VS03's tech unlock is the first real sink. If playtests show teams ignoring the well because the number does nothing, the smallest
+in-scope lever would be a VS02-only sink (e.g. a Commander-bought supply drop or a Weaver-bought heal boost); not built, because it is a
+design change.
+
+**D-34 — Strategy telemetry.** Counters `node.ticks.{expedition,bloom,none}` (who controls the well, per tick), `structure.{placed,completed,
+destroyed}.<type>`, `structure.damage.<type>`, `build.reject.<reason>`, `command.enter/exit`, `order.<kind>`, `weaver.heal.*`, `economy.spent.*`.
+`/debug/telemetry` adds node-control fractions and strategy counts to `summary`, and a live per-room economy snapshot under `rooms`
+(resources, income, earned/spent, structures with HP/state/progress, well controller, Commander). The `?dev=1` overlay shows the same.
+
+**D-35 — Soak lineups.** The real-socket soak (`pnpm soak`, CI) now runs Commander + Marine vs Ripper + Weaver; the Commander rebuilds whenever
+the well is free and the Weaver contests it. The virtual-time harness learned Commander mode the way a client does (from the delayed snapshot)
+and has a Weaver fuzzer.
