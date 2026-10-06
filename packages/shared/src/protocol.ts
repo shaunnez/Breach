@@ -17,6 +17,8 @@ export interface InputFrame {
   sprint: boolean;
   primary: boolean;
   secondary: boolean;
+  /** Ripper: wall/ceiling cling wanted (hold or toggle on the client). Floors always stick. */
+  cling: boolean;
   interact: boolean;
   /** Smallest prerequisite beyond the bible's frame: Marine needs a reload key. */
   reload: boolean;
@@ -39,6 +41,7 @@ export const emptyInput = (seq = 0): InputFrame => ({
   sprint: false,
   primary: false,
   secondary: false,
+  cling: true,
   interact: false,
   reload: false,
   epoch: 0,
@@ -83,6 +86,7 @@ export function sanitizeInput(raw: unknown): InputFrame | null {
     sprint: r.sprint === true,
     primary: r.primary === true,
     secondary: r.secondary === true,
+    cling: r.cling !== false,
     interact: r.interact === true,
     reload: r.reload === true,
     epoch: typeof r.epoch === 'number' && Number.isFinite(r.epoch) ? ((r.epoch | 0) & 0xffff) : 0,

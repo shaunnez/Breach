@@ -83,7 +83,7 @@ function Landing() {
             <b>Marine:</b> LMB fire · R reload · Shift sprint · Space jump
           </li>
           <li>
-            <b>Ripper:</b> run into walls to climb · LMB bite · Space leap (costs energy) · RMB/C let go · V toggle surface view assist
+            <b>Ripper:</b> hold F to cling to walls/ceilings (T: hold/toggle) · LMB bite · Space leap (costs energy) · RMB/C let go · V toggle surface view assist
           </li>
         </ul>
         {dev && <p className="devnote">Dev mode ON: press F3 or ` for the debug panel.</p>}

@@ -173,9 +173,25 @@ export class GameRuntime {
     } catch {}
   }
 
+  /** Ripper wall cling: hold F, or (toggle mode) press F to latch on/off. */
+  private clingToggleMode = false;
+  private clingLatched = false;
+  private clingActive(held: boolean): boolean {
+    return this.clingToggleMode ? this.clingLatched : held;
+  }
+
   private onKey(code: string, down: boolean): void {
     if (code === 'Tab') setState({ scoreboard: down });
     if (!down) return;
+    if (code === 'KeyF' && this.clingToggleMode) {
+      this.clingLatched = !this.clingLatched;
+      this.notice(`Wall cling ${this.clingLatched ? 'ON' : 'OFF'}`);
+    }
+    if (code === 'KeyT') {
+      this.clingToggleMode = !this.clingToggleMode;
+      this.clingLatched = false;
+      this.notice(`Wall cling: ${this.clingToggleMode ? 'toggle (F)' : 'hold (F)'}`);
+    }
     if (code === 'KeyV') {
       this.setViewAssist(!this.assist.enabled);
       this.notice(`Surface view assist ${this.assist.enabled ? 'ON' : 'OFF'}`);
@@ -405,6 +421,7 @@ export class GameRuntime {
       sprint: locked && s.sprint,
       primary: locked && s.primary,
       secondary: locked && s.secondary,
+      cling: this.clingActive(s.cling),
       interact: locked && s.interact,
       reload: locked && s.reload,
     };
