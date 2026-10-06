@@ -137,8 +137,8 @@ export type DevAction =
   | { action: 'clearDummies' }
   | { action: 'reset' };
 
-export type DevRoom = 'marineSpawn' | 'junction' | 'resource' | 'ledge' | 'maintenance' | 'hive' | 'vent';
-export const DEV_ROOMS: DevRoom[] = ['marineSpawn', 'junction', 'resource', 'ledge', 'maintenance', 'hive', 'vent'];
+export type DevRoom = 'marineSpawn' | 'junction' | 'resource' | 'ledge' | 'maintenance' | 'hive' | 'vent' | 'console' | 'well';
+export const DEV_ROOMS: DevRoom[] = ['marineSpawn', 'junction', 'resource', 'ledge', 'maintenance', 'hive', 'vent', 'console', 'well'];
 
 export type ShotRejectReason = 'ok' | 'empty' | 'reloading' | 'cooldown' | 'dead' | 'protected-cancel';
 

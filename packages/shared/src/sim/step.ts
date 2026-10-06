@@ -1,9 +1,9 @@
-import { MARINE, MARINE_HURT, RIPPER_EXTRA } from '../balance';
+import { MARINE, MARINE_HURT, RIPPER_EXTRA, WEAVER } from '../balance';
 import { PlayerClass } from '../enums';
 import { add, madd, normalize, scale, viewDir, type Vec3 } from '../math';
 import type { InputFrame } from '../protocol';
 import type { CollisionWorld } from '../map/collision';
-import { stepMarineMovement } from './marine';
+import { stepWalkerMovement, walkerProfile } from './marine';
 import { surfaceFrame, stepRipperMovement } from './ripper';
 import { spreadOffset, stepWeapon } from './weapon';
 import type { PlayerSim, StepResult } from './state';
@@ -12,16 +12,17 @@ import { resetStepResult } from './state';
 /** Advance one fixed 1/60 s tick of one player from one input frame. Mutates `s` and `out`. */
 export function stepPlayer(s: PlayerSim, input: InputFrame, world: CollisionWorld, out: StepResult): StepResult {
   resetStepResult(out);
-  if (s.cls === PlayerClass.Marine) stepMarineMovement(s, input, world, out);
-  else stepRipperMovement(s, input, world, out);
+  if (s.cls === PlayerClass.Ripper) stepRipperMovement(s, input, world, out);
+  else stepWalkerMovement(s, input, world, out, walkerProfile(s.cls));
   // weapons use post-move state (spread depends on speed)
   stepWeapon(s, input, out);
   return out;
 }
 
-/** Camera / ray origin. Marine: eye height. Ripper: 0.28 m off the surface along its normal. */
+/** Camera / ray origin. Walkers: eye height. Ripper: 0.28 m off the surface along its normal. */
 export function eyePosition(s: PlayerSim): Vec3 {
   if (s.cls === PlayerClass.Marine) return { x: s.px, y: s.py + MARINE.eyeHeight, z: s.pz };
+  if (s.cls === PlayerClass.Weaver) return { x: s.px, y: s.py + WEAVER.eyeHeight, z: s.pz };
   return { x: s.px + s.nx * 0.28, y: s.py + s.ny * 0.28, z: s.pz + s.nz * 0.28 };
 }
 
@@ -50,12 +51,15 @@ export function hurtCapsule(s: PlayerSim): Capsule {
       r: MARINE_HURT.radius,
     };
   }
+  if (s.cls === PlayerClass.Weaver) {
+    return { a: { x: s.px, y: s.py + WEAVER.hurtBottom, z: s.pz }, b: { x: s.px, y: s.py + WEAVER.hurtTop, z: s.pz }, r: WEAVER.hurtRadius };
+  }
   const f = surfaceFrame({ x: s.nx, y: s.ny, z: s.nz }, s.yaw, s.pitch).tf;
   const c: Vec3 = { x: s.px, y: s.py, z: s.pz };
   return { a: madd(c, f, RIPPER_EXTRA.hurtHalfSegment), b: madd(c, f, -RIPPER_EXTRA.hurtHalfSegment), r: RIPPER_EXTRA.hurtRadius };
 }
 
-/** Origin of a Ripper bite (centre of the head sweep). */
+/** Origin of a Ripper bite / Weaver melee (centre of the head sweep). */
 export function biteOrigin(s: PlayerSim): Vec3 {
   return eyePosition(s);
 }

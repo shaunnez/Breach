@@ -93,3 +93,27 @@ export function rayCapsule(o: Vec3, d: Vec3, a: Vec3, b: Vec3, r: number, maxT: 
   sphere(b);
   return best;
 }
+
+/** Ray vs axis-aligned box. Returns the entry t along unit dir (0 if the origin is inside) or null. */
+export function rayAabb(o: Vec3, d: Vec3, min: Vec3, max: Vec3, maxT: number): number | null {
+  let t0 = 0;
+  let t1 = maxT;
+  for (const k of ['x', 'y', 'z'] as const) {
+    if (Math.abs(d[k]) < 1e-12) {
+      if (o[k] < min[k] || o[k] > max[k]) return null;
+      continue;
+    }
+    let a = (min[k] - o[k]) / d[k];
+    let b = (max[k] - o[k]) / d[k];
+    if (a > b) [a, b] = [b, a];
+    t0 = Math.max(t0, a);
+    t1 = Math.min(t1, b);
+    if (t0 > t1) return null;
+  }
+  return t0;
+}
+
+/** Closest point on (or in) an axis-aligned box to p. */
+export function closestOnAabb(min: Vec3, max: Vec3, p: Vec3): Vec3 {
+  return { x: Math.min(max.x, Math.max(min.x, p.x)), y: Math.min(max.y, Math.max(min.y, p.y)), z: Math.min(max.z, Math.max(min.z, p.z)) };
+}

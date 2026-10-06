@@ -115,6 +115,85 @@ export const MATCH = {
 /** EXTRA: Marine hurt volume (vertical capsule, server-side hit tests only). */
 export const MARINE_HURT = { radius: 0.36, bottom: 0.36, top: 1.46 } as const;
 
+// ---- VS02: Strategy Truth Slice ------------------------------------------------------------------
+
+/** Bible section 32 "Economy baseline", verbatim (also in config/balance.example.ts). */
+export const ECONOMY = {
+  structureIncomePerSec: 0.6,
+  extractorCost: 10,
+  harvesterCost: 10,
+  startingResources: 20,
+  structureBuildSec: 6,
+} as const;
+
+/** EXTRA (VS02, D-27): structure values the bible leaves open. */
+export const STRUCTURE = {
+  extractorHealth: 600,
+  harvesterHealth: 600,
+  /** a structure starts at this fraction of max health and grows to full over the build time */
+  buildStartHealthFrac: 0.25,
+  /** hurt box around the well head: half extents on X/Z, height above the floor */
+  hurtHalf: 1.15,
+  hurtHeight: 2.6,
+} as const;
+
+/** EXTRA (VS02, D-28): Weaver, the slow Bloom support/builder (bible section 34). Ground walker. */
+export const WEAVER = {
+  health: 150,
+  armour: 0,
+  walkSpeed: 4.0,
+  backwardSpeed: 3.4,
+  strafeSpeed: 3.8,
+  groundAcceleration: 24,
+  airAcceleration: 6,
+  friction: 12,
+  gravity: 18,
+  jumpImpulse: 4.8,
+  horizontalSpeedCap: 5.0,
+  colliderRadius: 0.4,
+  standingHeight: 1.3,
+  eyeHeight: 1.1,
+  stepHeight: 0.35,
+  fov: 95,
+  maxEnergy: 100,
+  energyRegenPerSec: 12,
+  energyRegenDelaySec: 0.6,
+  /** basic melee: weaker and slower than the Ripper bite */
+  meleeDamage: 20,
+  meleeCooldownSec: 0.7,
+  meleeReach: 1.4,
+  meleeSweepRadius: 0.35,
+  meleeArcDeg: 80,
+  /** local heal pulse (secondary): Bloom players and Bloom structures in radius */
+  healPulseCost: 40,
+  healPulseCooldownSec: 2,
+  healPulseRadius: 5,
+  healPulseAmount: 30,
+  healPulseStructureAmount: 60,
+  /** horizontal distance from the well centre within which a Weaver may build */
+  buildReach: 3.0,
+  /** hurt volume (vertical capsule, server-side hit tests only) */
+  hurtRadius: 0.45,
+  hurtBottom: 0.45,
+  hurtTop: 0.95,
+} as const;
+
+/** EXTRA (VS02, D-29): Commander interaction. */
+export const COMMAND = {
+  /** horizontal distance from the console stand point within which a Marine may enter */
+  consoleReach: 1.8,
+  maxCommanders: 1,
+  /** waypoint / ping lifetime */
+  orderTtlSec: 30,
+  /** command / build / order message rate limit per player */
+  msgPerSec: 12,
+  cameraMinAltitude: 8,
+  cameraMaxAltitude: 24,
+  cameraMinPitchDeg: 55,
+  cameraMaxPitchDeg: 70,
+  cameraPanSpeed: 14,
+} as const;
+
 export const TICK_HZ = NET.serverSimulationHz;
 export const TICK_DT = 1 / TICK_HZ;
 export const TICK_MS = 1000 / TICK_HZ;
