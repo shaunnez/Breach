@@ -37,7 +37,7 @@ Automated netcode numbers are in `docs/VS01_STATUS.md`.
    try `V` (off) and compare; if they report being unable to turn corners without it, the assist stays. Candidate tweaks:
    ease time constant (`SurfaceViewAssist.tau`, 70 ms), assist only on concave corners, or full surface-relative roll as the
    accessibility option the bible reserves for later.
-2. **Wall stickiness.** A Ripper that stops pressing W on a wall coasts for ~0.5 s (12 m/s² idle decel) and then drops at
+2. **Wall stickiness. (Addressed 2026-10-06: hold F to cling.)** A Ripper that stops pressing W on a wall coasts for ~0.5 s (12 m/s² idle decel) and then drops at
    < 2 m/s. If ambush hangs on ceilings are wanted, lower `surfaceIdleDecel` / `minWallSustainSpeed`, (superseded: holding cling (F) now keeps the Ripper stationary on walls/ceilings).
 3. **Leap length at level aim is 5 m** (7–9 m needs 6–11° of upward aim). If testers aim flat and find it short, raise
    `leapForwardImpulse` or lower `airGravity` rather than teaching an aim habit.
@@ -64,8 +64,15 @@ Automated netcode numbers are in `docs/VS01_STATUS.md`.
 
 | Date | Testers (n) | Format | What felt good | What felt bad | Fun verdict ("play again?") | Constants changed |
 |---|---|---|---|---|---|---|
-| _none yet_ | | | | | | |
+| 2026-10-06 | 1 (project owner, solo, hands-on) | Ripper movement | Wall/ceiling climbing concept | Auto wall-attach caught the Ripper in doorways/under roofs; Ripper fell off walls when stationary | n/a (not a fun test) | Cling key (hold/toggle); no slow-detach while clinging — see tuning log |
 
 ## Tuning log
 
-_(empty — baseline values from `config/balance.example.ts` are in force; extras are in `RIPPER_EXTRA` / `RIFLE_EXTRA` and justified in DECISIONS.md D-14.)_
+| Date | Change | Why | Where |
+|---|---|---|---|
+| 2026-10-06 | **Wall/ceiling cling is now an explicit key** (hold **F**, or **T** to switch to toggle mode). Without it the Ripper only sticks to floors; walls/ceilings are neither attached to nor adhered to. | First hands-on feedback (project owner): auto-attach was janky, e.g. running through doorways or under roofs snapped the Ripper onto the frame. | `InputFrame.cling` (D-25), `ripper.ts` |
+| 2026-10-06 | **Slow-speed wall detach (`minWallSustainSpeed`, 2 m/s) now only applies when cling is not held.** Holding cling lets the Ripper sit stationary on walls/ceilings (ambush hangs). | Owner feedback: Ripper fell off walls when stopped. Resolves known feel risk 2 ("add an explicit hold"). | `ripper.ts` |
+
+No numeric constants in `config/balance.example.ts`, `RIPPER` or `RIPPER_EXTRA` have changed; both changes are input/rule changes.
+
+_(baseline values from `config/balance.example.ts` are in force; extras are in `RIPPER_EXTRA` / `RIFLE_EXTRA` and justified in DECISIONS.md D-14.)_
