@@ -11,3 +11,5 @@ export * from './sim/ripper';
 export * from './sim/weapon';
 export * from './sim/step';
 export * from './sim/viewAssist';
+export * from './economy';
+export * from './commander';

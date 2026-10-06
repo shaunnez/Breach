@@ -1,13 +1,38 @@
-import { MARINE, TICK_DT } from '../balance';
-import { SurfaceState } from '../enums';
+import { MARINE, TICK_DT, WEAVER } from '../balance';
+import { PlayerClass, SurfaceState } from '../enums';
 import { clamp, forwardH, rightH } from '../math';
 import type { InputFrame } from '../protocol';
 import type { CollisionWorld } from '../map/collision';
 import type { PlayerSim, StepResult } from './state';
 
-const R = MARINE.colliderRadius;
-const H = MARINE.standingHeight;
 const SKIN = 1e-4;
+
+/** Ground-walker tuning: the Marine (VS01) and the Weaver (VS02, D-28) share one AABB controller. */
+export interface WalkerProfile {
+  colliderRadius: number;
+  standingHeight: number;
+  walkSpeed: number;
+  /** equal to walkSpeed when the class cannot sprint */
+  sprintSpeed: number;
+  backwardSpeed: number;
+  strafeSpeed: number;
+  groundAcceleration: number;
+  airAcceleration: number;
+  friction: number;
+  gravity: number;
+  jumpImpulse: number;
+  horizontalSpeedCap: number;
+  stepHeight: number;
+  canSprint: boolean;
+}
+
+export const MARINE_WALKER: WalkerProfile = { ...MARINE, canSprint: true };
+export const WEAVER_WALKER: WalkerProfile = { ...WEAVER, sprintSpeed: WEAVER.walkSpeed, canSprint: false };
+export const walkerProfile = (cls: PlayerClass): WalkerProfile => (cls === PlayerClass.Weaver ? WEAVER_WALKER : MARINE_WALKER);
+
+// collider dims of the walker being stepped (set per call; the step is synchronous)
+let R: number = MARINE.colliderRadius;
+let H: number = MARINE.standingHeight;
 
 function blocked(world: CollisionWorld, x: number, y: number, z: number): boolean {
   return world.aabbBlocked(x - R, y, z - R, x + R, y + H, z + R);
@@ -26,7 +51,7 @@ function supportBelow(world: CollisionWorld, x: number, y: number, z: number, ma
 }
 
 /** Slide-move along one horizontal axis with step-up. Returns true if blocked. */
-function moveAxis(world: CollisionWorld, s: PlayerSim, axis: 'x' | 'z', d: number, grounded: boolean): boolean {
+function moveAxis(world: CollisionWorld, s: PlayerSim, axis: 'x' | 'z', d: number, grounded: boolean, stepH: number): boolean {
   if (d === 0) return false;
   const nx = axis === 'x' ? s.px + d : s.px;
   const nz = axis === 'z' ? s.pz + d : s.pz;
@@ -35,10 +60,10 @@ function moveAxis(world: CollisionWorld, s: PlayerSim, axis: 'x' | 'z', d: numbe
     s.pz = nz;
     return false;
   }
-  if (grounded && !blocked(world, nx, s.py + MARINE.stepHeight, nz) && !blocked(world, s.px, s.py + MARINE.stepHeight, s.pz)) {
+  if (grounded && !blocked(world, nx, s.py + stepH, nz) && !blocked(world, s.px, s.py + stepH, s.pz)) {
     s.px = nx;
     s.pz = nz;
-    s.py += MARINE.stepHeight; // settled back onto the tread by the ground snap
+    s.py += stepH; // settled back onto the tread by the ground snap
     return false;
   }
   // push flush against whatever blocks us
@@ -69,7 +94,13 @@ function moveAxis(world: CollisionWorld, s: PlayerSim, axis: 'x' | 'z', d: numbe
 }
 
 export function stepMarineMovement(s: PlayerSim, input: InputFrame, world: CollisionWorld, out: StepResult): void {
+  stepWalkerMovement(s, input, world, out, MARINE_WALKER);
+}
+
+export function stepWalkerMovement(s: PlayerSim, input: InputFrame, world: CollisionWorld, out: StepResult, P: WalkerProfile): void {
   const dt = TICK_DT;
+  R = P.colliderRadius;
+  H = P.standingHeight;
   const ox = s.px;
   const oy = s.py;
   const oz = s.pz;
@@ -78,12 +109,12 @@ export function stepMarineMovement(s: PlayerSim, input: InputFrame, world: Colli
   const wasGrounded = s.surface === SurfaceState.Ground;
 
   // sprint: forward intent, key held, not firing. Firing cancels sprint immediately.
-  const sprinting = input.sprint && input.moveZ > 0.5 && !input.primary;
+  const sprinting = P.canSprint && input.sprint && input.moveZ > 0.5 && !input.primary;
   s.sprinting = sprinting ? 1 : 0;
 
-  const fwdSpeed = sprinting ? MARINE.sprintSpeed : MARINE.walkSpeed;
-  const wl = input.moveX * MARINE.strafeSpeed;
-  const wf = input.moveZ * (input.moveZ > 0 ? fwdSpeed : MARINE.backwardSpeed);
+  const fwdSpeed = sprinting ? P.sprintSpeed : P.walkSpeed;
+  const wl = input.moveX * P.strafeSpeed;
+  const wf = input.moveZ * (input.moveZ > 0 ? fwdSpeed : P.backwardSpeed);
   const f = forwardH(s.yaw);
   const r = rightH(s.yaw);
   const wishX = r.x * wl + f.x * wf;
@@ -94,7 +125,7 @@ export function stepMarineMovement(s: PlayerSim, input: InputFrame, world: Colli
     const dz = wishZ - s.vz;
     const l = Math.hypot(dx, dz);
     if (l > 1e-9) {
-      const step = Math.max(MARINE.groundAcceleration, MARINE.friction * l) * dt;
+      const step = Math.max(P.groundAcceleration, P.friction * l) * dt;
       if (step >= l) {
         s.vx = wishX;
         s.vz = wishZ;
@@ -110,33 +141,33 @@ export function stepMarineMovement(s: PlayerSim, input: InputFrame, world: Colli
       const wdz = wishZ / ws;
       const addSpeed = ws - (s.vx * wdx + s.vz * wdz);
       if (addSpeed > 0) {
-        const a = Math.min(MARINE.airAcceleration * dt, addSpeed);
+        const a = Math.min(P.airAcceleration * dt, addSpeed);
         s.vx += wdx * a;
         s.vz += wdz * a;
       }
     }
   }
   const hs = Math.hypot(s.vx, s.vz);
-  if (hs > MARINE.horizontalSpeedCap) {
-    const k = MARINE.horizontalSpeedCap / hs;
+  if (hs > P.horizontalSpeedCap) {
+    const k = P.horizontalSpeedCap / hs;
     s.vx *= k;
     s.vz *= k;
   }
 
   // jump / gravity
   if (wasGrounded && input.jump) {
-    s.vy = MARINE.jumpImpulse;
+    s.vy = P.jumpImpulse;
     out.jumped = true;
   } else if (!wasGrounded) {
-    s.vy -= MARINE.gravity * dt;
+    s.vy -= P.gravity * dt;
   } else {
     s.vy = 0;
   }
   const groundedForStep = wasGrounded && !out.jumped;
 
   // horizontal collision (axis separated)
-  if (moveAxis(world, s, 'x', s.vx * dt, groundedForStep)) s.vx = 0;
-  if (moveAxis(world, s, 'z', s.vz * dt, groundedForStep)) s.vz = 0;
+  if (moveAxis(world, s, 'x', s.vx * dt, groundedForStep, P.stepHeight)) s.vx = 0;
+  if (moveAxis(world, s, 'z', s.vz * dt, groundedForStep, P.stepHeight)) s.vz = 0;
 
   // vertical
   let grounded = false;
@@ -155,7 +186,7 @@ export function stepMarineMovement(s: PlayerSim, input: InputFrame, world: Colli
       s.py = ny;
     }
   } else {
-    const drop = Math.max(-s.vy * dt, wasGrounded && !out.jumped ? MARINE.stepHeight + 0.02 : 0);
+    const drop = Math.max(-s.vy * dt, wasGrounded && !out.jumped ? P.stepHeight + 0.02 : 0);
     const sup = supportBelow(world, s.px, s.py, s.pz, drop + 1e-4);
     if (sup !== null && sup >= s.py + s.vy * dt - 1e-6) {
       if (!wasGrounded) out.landed = true;

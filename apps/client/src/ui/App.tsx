@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { PlayerClass, MATCH, NET } from '@breach/shared';
+import { useEffect, useState } from 'react';
+import { CLASS_LABELS, ECONOMY, Faction, PlayerClass, MATCH, NET, factionOf } from '@breach/shared';
 import { session } from '../app/session';
 import { setState, useStore } from '../app/store';
 import { GameScreen } from './GameScreen';
@@ -41,7 +41,7 @@ function Landing() {
       <h1>
         BREACH<span>//</span>HIVE
       </h1>
-      <p className="tag">Combat Truth Slice · Marine versus Ripper · 2–4 players</p>
+      <p className="tag">Strategy Truth Slice · Expedition versus Bloom · hold the resource well · 2–4 players</p>
       <section className="card">
         <label>
           Callsign
@@ -83,16 +83,37 @@ function Landing() {
             <b>Marine:</b> LMB fire · R reload · Shift sprint · Space jump
           </li>
           <li>
-            <b>Ripper:</b> run into walls to climb · LMB bite · Space leap (costs energy) · RMB/C let go · V toggle surface view assist
+            <b>Commander:</b> a Marine presses E at the spawn console · overhead view · B place Extractor on the well ({ECONOMY.extractorCost}) · RMB order/ping
+          </li>
+          <li>
+            <b>Weaver:</b> LMB claw · RMB heal pulse · E at the well grows a Harvester ({ECONOMY.harvesterCost}) · slow, cannot climb
+          </li>
+          <li>
+            <b>Ripper:</b> hold F to cling to walls/ceilings (T: hold/toggle) · LMB bite · Space leap (costs energy) · RMB/C let go · V toggle surface view assist
           </li>
         </ul>
-        {dev && <p className="devnote">Dev mode ON: press F3 or ` for the debug panel.</p>}
+        {dev && <p className="devnote">Dev mode ON: press ` (or F3), or click "debug overlay" top-left, for the debug panel.</p>}
       </section>
     </main>
   );
 }
 
+/** Full shareable URL: opening it joins the room directly (or just fills the code in if the room is full). */
+export function inviteLink(code: string, dev: boolean): string {
+  return `${location.origin}/play?room=${code}${dev ? '&dev=1' : ''}`;
+}
+
 function Lobby() {
+  const [copied, setCopied] = useState(false);
+  const copyInvite = async (link: string) => {
+    try {
+      await navigator.clipboard.writeText(link);
+    } catch {
+      window.prompt('Copy this invite link', link); // clipboard blocked (http / permissions): let the player copy it by hand
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
   const match = useStore((s) => s.match);
   const me = useStore((s) => s.sessionId);
   const dev = useStore((s) => s.dev);
@@ -101,9 +122,11 @@ function Lobby() {
   const players = [...match.players].filter((p) => !p.dummy).sort((a, b) => a.seat - b.seat);
   const amHost = match.hostId === me;
   const mine = players.find((p) => p.id === me);
-  const count = (c: number) => players.filter((p) => p.sim.cls === c).length;
-  const full = (c: number) => count(c) >= Math.ceil(MATCH.maxPlayers / 2) && mine?.sim.cls !== c;
-  const link = `${location.origin}/play?room=${match.roomCode}`;
+  const side = (f: Faction) => players.filter((p) => factionOf(p.sim.cls) === f).length;
+  const cap = Math.ceil(MATCH.maxPlayers / 2);
+  const full = (c: PlayerClass) => side(factionOf(c)) >= cap && (!mine || factionOf(mine.sim.cls) !== factionOf(c));
+  const link = inviteLink(match.roomCode, match.dev);
+  const bloom = !!mine && factionOf(mine.sim.cls) === Faction.Bloom;
   return (
     <main className="landing lobby">
       <h1>
@@ -113,7 +136,9 @@ function Lobby() {
         <div className="roomcode">
           <small>Room code</small>
           <strong data-testid="roomcode">{match.roomCode}</strong>
-          <button onClick={() => void navigator.clipboard?.writeText(link)}>Copy invite link</button>
+          <button onClick={() => void copyInvite(link)} data-testid="copy-invite">
+            {copied ? 'Copied!' : 'Copy invite link'}
+          </button>
         </div>
         <table className="players">
           <thead>
@@ -129,19 +154,24 @@ function Lobby() {
                 <td>
                   {p.name} {p.host && <em>host</em>} {!p.connected && <em className="warn">reconnecting</em>}
                 </td>
-                <td className={p.sim.cls === PlayerClass.Marine ? 'marine' : 'ripper'}>{p.sim.cls === PlayerClass.Marine ? 'Expedition Marine' : 'Bloom Ripper'}</td>
+                <td className={p.sim.cls === PlayerClass.Marine ? 'marine' : 'ripper'}>
+                  {p.sim.cls === PlayerClass.Marine ? 'Expedition' : 'Bloom'} {CLASS_LABELS[p.sim.cls]}
+                </td>
                 <td>{p.rttMs ? `${p.rttMs} ms` : '—'}</td>
               </tr>
             ))}
           </tbody>
         </table>
         <div className="row">
-          <button className={mine?.sim.cls === PlayerClass.Marine ? 'primary marine' : 'marine'} disabled={full(0)} onClick={() => session.setClass(PlayerClass.Marine)} data-testid="pick-marine">
-            Marine ({count(0)}/2)
+          <button className={mine && !bloom ? 'primary marine' : 'marine'} disabled={full(PlayerClass.Marine)} onClick={() => session.setClass(PlayerClass.Marine)} data-testid="pick-marine">
+            Marine · Expedition {side(Faction.Expedition)}/{cap}
           </button>
-          <button className={mine?.sim.cls === PlayerClass.Ripper ? 'primary ripper' : 'ripper'} disabled={full(1)} onClick={() => session.setClass(PlayerClass.Ripper)} data-testid="pick-ripper">
-            Ripper ({count(1)}/2)
+          <button className={bloom ? 'primary ripper' : 'ripper'} disabled={full(PlayerClass.Ripper)} onClick={() => !bloom && session.setClass(PlayerClass.Ripper)} data-testid="pick-hive">
+            Hive · Bloom {side(Faction.Bloom)}/{cap}
           </button>
+        </div>
+        <p className="hint dim">Hive players start as Rippers and can change to a Weaver (3) or back (2) while standing in the Hive.</p>
+        <div className="row">
         </div>
         <div className="row">
           {amHost ? (
@@ -153,7 +183,7 @@ function Lobby() {
           )}
           <button onClick={() => void session.leave()}>Leave</button>
         </div>
-        {count(0) === 0 || count(1) === 0 ? <p className="hint">Tip: pick opposite sides for a Marine vs Ripper fight.</p> : null}
+        {side(Faction.Expedition) === 0 || side(Faction.Bloom) === 0 ? <p className="hint">Tip: pick opposite sides. Win fights to hold the resource well.</p> : null}
         {notice && performance.now() - notice.at < 4000 && <div className="error">{notice.text}</div>}
         {dev && <p className="devnote">Dev room: debug tools enabled (F3 in match).</p>}
       </section>

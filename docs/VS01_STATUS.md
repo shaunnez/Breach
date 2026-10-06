@@ -1,7 +1,9 @@
 # VS01 status against the Definition of Done
 
-**VS01 is NOT complete, and VS02 must not start.** The bible is explicit: proceed only when the combat is *fun*, and that has not
-been (and from this environment cannot be) established. What exists is a complete, tested, playable build and the tooling to find out.
+**VS01 is signed off for now (project owner, 2026-10-06), so VS02 may start.** Items 12–14 (Railway deploy, three external
+playtesters, a full tuning report) are *deferred*, not met: the deployment and external playtests will happen later, and the
+fun verdict below remains unproven by external testers. The tuning report has its first entries (cling key), see `docs/PLAYTEST_NOTES.md`.
+What exists is a complete, tested, playable build and the tooling to find out.
 This page is the honest checklist (bible section 31). "Automated" = proven by tests/tools in this repo; "Human" = needs people.
 
 | # | Definition of Done item | Status | Evidence / what is missing |

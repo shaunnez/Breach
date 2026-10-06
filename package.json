@@ -2,7 +2,7 @@
   "name": "breach-hive",
   "version": "0.1.0",
   "private": true,
-  "description": "BREACH//HIVE VS01 Combat Truth Slice",
+  "description": "BREACH//HIVE VS01 Combat Truth Slice + VS02 Strategy Truth Slice",
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=22"

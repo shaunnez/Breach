@@ -60,6 +60,30 @@ export class PlayerSchema extends Schema {
   @type('uint32') damage = 0;
   @type('uint16') rttMs = 0;
   @type('uint8') pendingCls = 255;
+  // VS02
+  @type('boolean') commanding = false;
+  /** Commander waypoint for this Marine (orderUntilMs 0 = none) */
+  @type('string') orderKind = '';
+  @type('float32') orderX = 0;
+  @type('float32') orderY = 0;
+  @type('float32') orderZ = 0;
+  @type('float64') orderUntilMs = 0;
+}
+
+/** VS02 structure (Extractor / Harvester) on a resource well. */
+export class StructureSchema extends Schema {
+  @type('string') id = '';
+  @type('string') type = '';
+  @type('uint8') faction = 0;
+  @type('string') nodeId = '';
+  @type('float32') x = 0;
+  @type('float32') y = 0;
+  @type('float32') z = 0;
+  @type('float32') hp = 0;
+  @type('uint16') maxHp = 0;
+  @type('uint8') state = 0;
+  @type('float32') progress = 0;
+  @type('string') builderId = '';
 }
 
 export class MatchSchema extends Schema {
@@ -73,4 +97,16 @@ export class MatchSchema extends Schema {
   @type('boolean') dev = false;
   @type('float64') matchStartMs = 0;
   @type({ map: PlayerSchema }) players = new MapSchema<PlayerSchema>();
+  // VS02 economy (server state, replicated read-only)
+  @type('string') commanderId = '';
+  @type('float32') resExpedition = 0;
+  @type('float32') resBloom = 0;
+  @type('float32') incomeExpedition = 0;
+  @type('float32') incomeBloom = 0;
+  @type('string') pingKind = '';
+  @type('float32') pingX = 0;
+  @type('float32') pingY = 0;
+  @type('float32') pingZ = 0;
+  @type('float64') pingUntilMs = 0;
+  @type({ map: StructureSchema }) structures = new MapSchema<StructureSchema>();
 }

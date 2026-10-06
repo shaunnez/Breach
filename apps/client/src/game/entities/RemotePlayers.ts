@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PlayerClass, SurfaceState, surfaceFrame, type PlayerSim } from '@breach/shared';
+import { PlayerClass, SurfaceState, isWalker, surfaceFrame, type PlayerSim } from '@breach/shared';
 import { SnapshotBuffer, type InterpState } from '../network/SnapshotBuffer';
 import type { PlayerSnapshot } from '../network/types';
 
@@ -59,8 +59,8 @@ export class RemoteEntity {
     this.speed = dt > 0 ? pos.distanceTo(this.prevPos) / dt : 0;
     this.prevPos.copy(pos);
     root.position.copy(pos);
-    if (snap.sim.cls === PlayerClass.Marine) {
-      root.quaternion.setFromAxisAngle(this.up, st.yaw);
+    if (isWalker(snap.sim.cls)) {
+      root.quaternion.setFromAxisAngle(this.up.set(0, 1, 0), st.yaw);
     } else {
       const n = { x: st.nx, y: st.ny, z: st.nz };
       const f = surfaceFrame(n, st.yaw, st.pitch).tf;

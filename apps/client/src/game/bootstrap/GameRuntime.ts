@@ -1,6 +1,22 @@
 import * as THREE from 'three';
 import {
   BITE,
+  CLASS_LABELS,
+  COMMAND,
+  COMMAND_CONSOLE,
+  ECONOMY,
+  Faction,
+  RESOURCE_NODES,
+  STRUCTURE_COST,
+  STRUCTURE_LABEL,
+  StructureState,
+  WEAVER,
+  commanderFrame,
+  atOwnBase,
+  factionOf,
+  isWalker,
+  walkerProfile,
+  structureHurtBox,
   MARINE,
   NET,
   PlayerClass,
@@ -40,6 +56,26 @@ import { Fx } from '../combat/Fx';
 import { AudioEngine } from '../audio/AudioEngine';
 import { makeAvatar } from '../entities/Avatar';
 import { FirstPersonView } from '../entities/FirstPersonView';
+import { StrategyLayer } from '../strategy/StrategyLayer';
+import { CommanderController, type GroundClick } from '../strategy/CommanderController';
+
+const BUILD_REASON_TEXT: Record<string, string> = {
+  'wrong-role': 'not your role',
+  'invalid-node': 'not a resource well',
+  'node-occupied': 'the well is already occupied',
+  'insufficient-resources': 'not enough resources',
+  'wrong-phase': 'the match is not running',
+  'out-of-reach': 'too far from the well',
+  dead: 'you are dead',
+  malformed: 'bad request',
+};
+const COMMAND_REASON_TEXT: Record<string, string> = {
+  'wrong-role': 'only Marines can command',
+  'out-of-reach': 'stand at the console',
+  occupied: 'someone is already commanding',
+  'wrong-phase': 'the match is not running',
+  dead: 'you are dead',
+};
 
 export const DEBUG_TOGGLES = ['colliders', 'hurtVolumes', 'hitRays', 'biteSweep', 'surfaceProbes', 'traversalProbes', 'spawnVolumes', 'interpGhosts'] as const;
 export type DebugToggle = (typeof DEBUG_TOGGLES)[number];
@@ -103,6 +139,13 @@ export class GameRuntime {
   private lastRecTotal = 0;
   private wasAlive = false;
   private frameCount = 0;
+  // ---- VS02 ----
+  readonly strategy: StrategyLayer;
+  readonly commander: CommanderController;
+  private commanding = false;
+  buildMode = false;
+  readonly selected = new Set<string>();
+  private lastBuildText = '—';
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -115,6 +158,9 @@ export class GameRuntime {
     this.renderer.scene.add(this.debugDraw.object);
     this.fx = new Fx(this.renderer.scene);
     this.fpv = new FirstPersonView(this.renderer.camera);
+    this.strategy = new StrategyLayer(this.renderer.scene);
+    this.commander = new CommanderController(canvas);
+    this.commander.onClick = (c) => this.onCommanderClick(c);
     this.input = new InputController(canvas);
     this.input.onLook = (dx, dy) => this.assist.look(-dx, -dy);
     this.input.onLockChange = (l) => {
@@ -148,6 +194,8 @@ export class GameRuntime {
     cancelAnimationFrame(this.raf);
     this.input.detach();
     this.audio.dispose();
+    this.commander.dispose();
+    this.strategy.dispose();
     for (const r of this.remotes.values()) r.dispose();
     this.remotes.clear();
     this.fx.dispose();
@@ -158,6 +206,7 @@ export class GameRuntime {
   }
 
   requestLock(): void {
+    if (this.commanding) return; // the Commander uses a free cursor
     this.input.requestLock();
     this.audio.resume();
   }
@@ -173,21 +222,132 @@ export class GameRuntime {
     } catch {}
   }
 
+  /** Ripper wall cling: hold F, or (toggle mode) press F to latch on/off. */
+  private clingToggleMode = false;
+  private clingLatched = false;
+  private clingActive(held: boolean): boolean {
+    return this.clingToggleMode ? this.clingLatched : held;
+  }
+
   private onKey(code: string, down: boolean): void {
     if (code === 'Tab') setState({ scoreboard: down });
     if (!down) return;
+    if (code === 'KeyF' && this.clingToggleMode) {
+      this.clingLatched = !this.clingLatched;
+      this.notice(`Wall cling ${this.clingLatched ? 'ON' : 'OFF'}`);
+    }
+    if (code === 'KeyT') {
+      this.clingToggleMode = !this.clingToggleMode;
+      this.clingLatched = false;
+      this.notice(`Wall cling: ${this.clingToggleMode ? 'toggle (F)' : 'hold (F)'}`);
+    }
     if (code === 'KeyV') {
       this.setViewAssist(!this.assist.enabled);
       this.notice(`Surface view assist ${this.assist.enabled ? 'ON' : 'OFF'}`);
     }
-    if (code === 'F3' || code === 'Backquote') {
-      if (this.dev) setState((s) => ({ debug: s.debug ? null : this.debugState() }));
-    }
+    if (code === 'F3' || code === 'Backquote' || code === 'IntlBackslash') this.toggleDebug(); // § / ` sits top-left on Mac keyboards
     if (code === 'KeyM') this.audio.toggleMute();
-    if ((code === 'Digit1' || code === 'Digit2') && this.me && !this.me.alive && view_isPlaying(this.view)) {
-      this.net.setClass(code === 'Digit1' ? 0 : 1);
-      this.notice(`Next spawn: ${code === 'Digit1' ? 'Expedition Marine' : 'Bloom Ripper'} (max 2 per side)`);
+    const pick = code === 'Digit1' ? 0 : code === 'Digit2' ? 1 : code === 'Digit3' ? 2 : -1;
+    if (pick >= 0 && this.me && view_isPlaying(this.view) && !this.commanding) {
+      // dead: next spawn. Alive: switch on the spot inside your own base (D-36), else queued (the server says which)
+      this.net.setClass(pick as 0 | 1 | 2);
+      if (!this.me.alive) this.notice(`Next spawn: ${pick === 0 ? 'Expedition' : 'Bloom'} ${CLASS_LABELS[pick as 0 | 1 | 2]} (max 2 per side)`);
     }
+    if (code === 'KeyE') this.interact();
+    if (this.commanding) {
+      if (code === 'KeyB') this.setBuildMode(!this.buildMode);
+      if (code === 'Escape') this.setBuildMode(false);
+    }
+  }
+
+  // ---- VS02: interactions ---------------------------------------------------------------------
+
+  /** E: Marine at the console -> Commander; Commander -> leave; Weaver at the well -> grow a Harvester. */
+  interact(): void {
+    const me = this.me;
+    if (!me?.alive || !view_isPlaying(this.view)) return;
+    if (this.commanding) {
+      this.net.command('exit');
+      return;
+    }
+    const ctx = this.interactContext();
+    if (ctx === 'console') this.net.command('enter');
+    else if (ctx === 'well') this.net.build('harvester', RESOURCE_NODES[0].id);
+  }
+
+  private interactContext(): 'console' | 'well' | '' {
+    const s = this.ctrl?.sim;
+    if (!s || !this.me?.alive) return '';
+    if (s.cls === PlayerClass.Marine && Math.hypot(s.px - COMMAND_CONSOLE.standX, s.pz - COMMAND_CONSOLE.standZ) <= COMMAND.consoleReach) return 'console';
+    const n = RESOURCE_NODES[0];
+    if (s.cls === PlayerClass.Weaver && Math.hypot(s.px - n.x, s.pz - n.z) <= WEAVER.buildReach) return 'well';
+    return '';
+  }
+
+  setBuildMode(on: boolean): void {
+    this.buildMode = on && this.commanding;
+    if (!this.buildMode) this.strategy.setHologram(null, false);
+  }
+
+  /** Commander can place on the well when it is within this distance of the cursor. */
+  private snapToNode(x: number, z: number): (typeof RESOURCE_NODES)[number] | null {
+    for (const n of RESOURCE_NODES) if (Math.hypot(n.x - x, n.z - z) < 2.5) return n;
+    return null;
+  }
+
+  private onCommanderClick(c: GroundClick): void {
+    if (!this.commanding || !this.view) return;
+    if (this.buildMode) {
+      if (c.button === 2) return this.setBuildMode(false);
+      const n = this.snapToNode(c.x, c.z);
+      if (!n) return this.notice('Extractors can only be placed on the resource well');
+      this.net.build('extractor', n.id);
+      this.setBuildMode(false);
+      return;
+    }
+    const marines = this.view.players.filter((p) => p.alive && p.sim.cls === PlayerClass.Marine && p.id !== this.net.sessionId);
+    if (c.button === 0) {
+      let best: string | null = null;
+      let bd = 1.6;
+      for (const p of marines) {
+        const st = this.remotes.get(p.id)?.lastInterp ?? p.sim;
+        const d = Math.hypot(st.px - c.x, st.pz - c.z);
+        if (d < bd) {
+          bd = d;
+          best = p.id;
+        }
+      }
+      if (!c.shift) this.selected.clear();
+      if (best) {
+        if (this.selected.has(best) && c.shift) this.selected.delete(best);
+        else this.selected.add(best);
+      }
+      return;
+    }
+    const targets = [...this.selected].filter((id) => marines.some((p) => p.id === id));
+    this.net.order({ kind: targets.length ? 'move' : 'ping', targets, x: c.x, y: 0, z: c.z });
+  }
+
+  private onCommandingChanged(on: boolean): void {
+    this.commanding = on;
+    this.selected.clear();
+    this.setBuildMode(false);
+    this.map.ceilings.visible = !on;
+    this.decor.overhead.visible = !on;
+    this.strategy.overhead = on;
+    if (on) {
+      if (document.pointerLockElement) document.exitPointerLock();
+      const n = RESOURCE_NODES[0];
+      this.commander.enter(n.x, n.z + 1); // open on the objective
+      this.notice('Command Core: WASD pan · wheel zoom · LMB select Marines · RMB order/ping · B place Extractor · E leave');
+    } else {
+      this.commander.exit();
+      this.notice('Left the Command Core: click to play');
+    }
+  }
+
+  toggleDebug(): void {
+    if (this.dev) setState((s) => ({ debug: s.debug ? null : this.debugState() }));
   }
 
   private notice(text: string): void {
@@ -198,6 +358,10 @@ export class GameRuntime {
 
   onMatch(view: MatchView): void {
     this.view = view;
+    this.strategy.sync(view.economy);
+    const meNow = view.players.find((p) => p.id === this.net.sessionId);
+    const cmd = !!meNow?.alive && !!meNow.commanding && view.phase === 'playing';
+    if (cmd !== this.commanding) this.onCommandingChanged(cmd);
     const myId = this.net.sessionId;
     const seen = new Set<string>();
     for (const p of view.players) {
@@ -303,7 +467,7 @@ export class GameRuntime {
             const worldAng = Math.atan2(-dx, -dz);
             this.damageDirs.push({ at: now, angle: worldAng - this.assist.yaw });
           }
-          this.audio.hurt(ev.armourDmg > 0 && ev.dmg === 0, this.localCls === PlayerClass.Ripper);
+          this.audio.hurt(ev.armourDmg > 0 && ev.dmg === 0, this.localCls !== PlayerClass.Marine);
         } else {
           this.fx.hitPuff(p, ev.armourDmg > 0 && ev.dmg === 0 ? 0x66ccff : 0xc4122f);
           this.audio.impact(p, ev.armourDmg > 0 && ev.dmg === 0, this.listenerPos());
@@ -317,8 +481,9 @@ export class GameRuntime {
         const text = ev.killer && ev.killer !== ev.victim ? `${k?.name ?? '?'} ${ev.kind === 'bite' ? '⟫ bit' : '⟫ shot'} ${v?.name ?? '?'}` : `${v?.name ?? '?'} died`;
         setState((s) => ({ killFeed: [...s.killFeed.slice(-5), { id: ++this.killId, text, at: now, mine }] }));
         const p = new THREE.Vector3(ev.px, ev.py, ev.pz);
-        this.fx.deathCue(p, v?.sim.cls === PlayerClass.Ripper ? 0x8a1020 : 0x66ccff);
-        this.audio.death(p, v?.sim.cls === PlayerClass.Ripper, ev.victim === myId, this.listenerPos());
+        const bloom = !!v && factionOf(v.sim.cls) === Faction.Bloom;
+        this.fx.deathCue(p, bloom ? 0x8a1020 : 0x66ccff);
+        this.audio.death(p, bloom, ev.victim === myId, this.listenerPos());
         if (ev.victim === myId && this.ctrl) {
           this.deathPos.set(this.ctrl.sim.px, this.ctrl.sim.py, this.ctrl.sim.pz);
           this.deathYaw = this.assist.yaw;
@@ -342,6 +507,61 @@ export class GameRuntime {
         if (ev.id !== myId) {
           const e = this.remotes.get(ev.id);
           if (e?.lastInterp) this.audio.reload(new THREE.Vector3(e.lastInterp.px, e.lastInterp.py, e.lastInterp.pz), this.listenerPos());
+        }
+        break;
+      }
+      case 'build-result': {
+        const label = STRUCTURE_LABEL[ev.structure];
+        this.lastBuildText = ev.ok ? `#${ev.requestId} ${label} accepted` : `#${ev.requestId} ${label} rejected: ${ev.reason}`;
+        this.notice(ev.ok ? `${label} placed: building (${ECONOMY.structureBuildSec} s)` : `Can't build ${label}: ${BUILD_REASON_TEXT[ev.reason] ?? ev.reason}`);
+        if (ev.ok) this.audio.reload(this.listenerPos().clone(), this.listenerPos(), true);
+        break;
+      }
+      case 'structure': {
+        const label = STRUCTURE_LABEL[ev.type];
+        const side = ev.faction === Faction.Expedition ? 'Expedition' : 'Bloom';
+        const by = this.view?.players.find((x) => x.id === ev.by)?.name ?? '?';
+        const text = ev.kind === 'placed' ? `${side} ${label} under construction` : ev.kind === 'completed' ? `${side} ${label} online · +${ECONOMY.structureIncomePerSec}/s` : `${by} destroyed the ${side} ${label}`;
+        const mineSide = this.me ? factionOf(this.me.sim.cls) === ev.faction : false;
+        setState((s) => ({ killFeed: [...s.killFeed.slice(-5), { id: ++this.killId, text, at: now, mine: mineSide }] }));
+        const p = new THREE.Vector3(ev.x, ev.y + 1, ev.z);
+        if (ev.kind === 'destroyed') {
+          this.fx.deathCue(p, ev.faction === Faction.Expedition ? 0x66ccff : 0x8a1020);
+          this.audio.death(p, ev.faction === Faction.Bloom, false, this.listenerPos());
+        } else if (ev.kind === 'completed') this.fx.spawnCue(p);
+        break;
+      }
+      case 'structure-hit': {
+        this.strategy.hit(ev.id);
+        const st = this.view?.economy.structures.find((x) => x.id === ev.id);
+        const p = new THREE.Vector3(ev.px, ev.py, ev.pz);
+        if (st?.faction === Faction.Bloom) this.fx.hitPuff(p, 0x8a1020);
+        else this.fx.sparks(p, new THREE.Vector3(0, 1, 0), 0xffc266);
+        if (ev.attacker === myId) {
+          this.hitAt = now;
+          this.hitKind = ev.destroyed ? 'kill' : 'armour';
+        }
+        break;
+      }
+      case 'heal': {
+        this.strategy.healPulse(ev.x, ev.y, ev.z);
+        this.audio.leap(new THREE.Vector3(ev.x, ev.y, ev.z), this.listenerPos(), ev.id === myId);
+        if (ev.id === myId) this.notice(`Heal pulse: ${ev.players} ally${ev.players === 1 ? '' : 'ies'}, ${ev.structures} structure${ev.structures === 1 ? '' : 's'}`);
+        break;
+      }
+      case 'order': {
+        const mine = ev.targets.includes(myId);
+        const team = ev.targets.length === 0 && this.me && factionOf(this.me.sim.cls) === Faction.Expedition;
+        if (mine || team) {
+          this.notice(mine ? 'Commander: move to the waypoint' : 'Commander ping');
+          this.audio.hitMarker(false, true);
+        }
+        break;
+      }
+      case 'command': {
+        if (ev.id === myId && !ev.on && ev.reason && ev.reason in COMMAND_REASON_TEXT) this.notice(`Command Core: ${COMMAND_REASON_TEXT[ev.reason]}`);
+        else if (ev.id !== myId && ev.on && this.me && factionOf(this.me.sim.cls) === Faction.Expedition) {
+          this.notice(`${this.view?.players.find((x) => x.id === ev.id)?.name ?? 'A Marine'} took command`);
         }
         break;
       }
@@ -405,10 +625,12 @@ export class GameRuntime {
       sprint: locked && s.sprint,
       primary: locked && s.primary,
       secondary: locked && s.secondary,
+      cling: this.clingActive(s.cling),
       interact: locked && s.interact,
       reload: locked && s.reload,
     };
-    const { frame: sent, result, before } = ctrl.predict(frame);
+    // Commander: the body stays at the console; predict exactly the neutral frame the server will simulate
+    const { frame: sent, result, before } = ctrl.predict(this.commanding ? commanderFrame({ ...frame, seq: 0 }) : frame);
     this.net.queueInput(sent);
     this.assist.onTick(before, ctrl.sim);
     this.presentStep(result, before, ctrl.sim, now);
@@ -457,7 +679,7 @@ export class GameRuntime {
     const speed = Math.hypot(after.vx, after.vy, after.vz);
     if (after.surface !== SurfaceState.Air && speed > 1.5) {
       this.stepDist += speed * TICK_DT;
-      const stride = after.cls === PlayerClass.Marine ? (after.sprinting ? 2.4 : 1.9) : 1.25;
+      const stride = after.cls === PlayerClass.Marine ? (after.sprinting ? 2.4 : 1.9) : after.cls === PlayerClass.Weaver ? 1.6 : 1.25;
       if (this.stepDist > stride) {
         this.stepDist = 0;
         this.audio.step(after.cls === PlayerClass.Marine, after.surface !== SurfaceState.Ground, speed / 8);
@@ -472,7 +694,13 @@ export class GameRuntime {
     const playing = this.playing();
     let fov: number = MARINE.fov;
     this.offset.set(0, 0, 0);
-    if (playing && this.ctrl) {
+    if (playing && this.ctrl && this.commanding) {
+      // Commander overhead view of the same map (bible section 14)
+      this.commander.update(dt, cam, (k) => this.input.isDown(k));
+      this.fpv.setVisible(false);
+      fov = 70;
+      this.updateCommanderVisuals();
+    } else if (playing && this.ctrl) {
       const c = this.ctrl;
       c.smooth(dt);
       this.offset.set(c.offX, c.offY, c.offZ);
@@ -480,7 +708,7 @@ export class GameRuntime {
       const s: PlayerSim = { ...c.sim, px: c.prev.px + (c.sim.px - c.prev.px) * alpha, py: c.prev.py + (c.sim.py - c.prev.py) * alpha, pz: c.prev.pz + (c.sim.pz - c.prev.pz) * alpha };
       fov = this.cam.update(cam, s, this.assist.yaw, this.assist.pitch, this.offset, dt);
       this.fpv.setVisible(true);
-      this.fpv.update(dt, s, this.localCls === PlayerClass.Marine ? 'marine' : 'ripper', this.input.sample().primary && this.input.locked);
+      this.fpv.update(dt, s, this.localCls === PlayerClass.Marine ? 'marine' : this.localCls === PlayerClass.Weaver ? 'weaver' : 'ripper', this.input.sample().primary && this.input.locked);
       this.wasAlive = true;
     } else if (this.me && !this.me.alive && this.ctrl && view_isPlaying(this.view)) {
       // death cam: hold the death position and drift up/back
@@ -516,6 +744,8 @@ export class GameRuntime {
       void showGhosts;
     }
 
+    if (!this.commanding) this.updateOrderBeacons();
+    this.strategy.update(dt, cam);
     this.fx.update(dt, now);
     this.audio.updateListener(cam);
     this.drawDebug(now);
@@ -531,7 +761,7 @@ export class GameRuntime {
     if (st.surface !== SurfaceState.Air && r.speed > 1.5) {
       r.stepDist += r.speed * dt;
       const marine = snap.sim.cls === PlayerClass.Marine;
-      const stride = marine ? (snap.sim.sprinting ? 2.4 : 1.9) : 1.25;
+      const stride = marine ? (snap.sim.sprinting ? 2.4 : 1.9) : snap.sim.cls === PlayerClass.Weaver ? 1.6 : 1.25;
       if (r.stepDist > stride) {
         r.stepDist = 0;
         this.audio.step(marine, st.surface !== SurfaceState.Ground, Math.min(1, r.speed / 8), pos, cam);
@@ -540,6 +770,42 @@ export class GameRuntime {
       r.nextChitterAt = now + 2200 + Math.random() * 3200;
       this.audio.chitter(pos, cam);
     }
+  }
+
+  /** Commander: hologram on the cursor (snapped to the well), selection rings, every Marine's order. */
+  private updateCommanderVisuals(): void {
+    const v = this.view;
+    if (!v) return;
+    const cur = this.commander.cursor;
+    if (this.buildMode && cur) {
+      const n = this.snapToNode(cur.x, cur.z);
+      const free = n ? !v.economy.structures.some((x) => x.nodeId === n.id) : false;
+      const afford = v.economy.resources[Faction.Expedition] >= STRUCTURE_COST.extractor;
+      this.strategy.setHologram(n ? { x: n.x, z: n.z } : cur, !!n && free && afford);
+    } else this.strategy.setHologram(null, false);
+    const rings: { x: number; y: number; z: number }[] = [];
+    for (const id of this.selected) {
+      const r = this.remotes.get(id)?.lastInterp;
+      if (r && this.remotes.get(id)?.snapshot?.alive) rings.push({ x: r.px, y: r.py, z: r.pz });
+    }
+    this.strategy.setSelection(rings);
+    const beacons: { x: number; y: number; z: number; color: number }[] = [];
+    for (const p of v.players) if (p.order && p.sim.cls === PlayerClass.Marine) beacons.push({ ...p.order, color: 0x00e5ff });
+    if (v.economy.ping) beacons.push({ ...v.economy.ping, color: 0xffb36b });
+    this.strategy.setBeacons(beacons);
+  }
+
+  /** Marines see their own waypoint and the team ping; the Bloom sees none of it. */
+  private updateOrderBeacons(): void {
+    const v = this.view;
+    const me = this.me;
+    const beacons: { x: number; y: number; z: number; color: number }[] = [];
+    if (v && me && me.sim.cls === PlayerClass.Marine) {
+      if (me.order) beacons.push({ ...me.order, color: 0x00e5ff });
+      if (v.economy.ping) beacons.push({ ...v.economy.ping, color: 0xffb36b });
+    }
+    this.strategy.setBeacons(beacons);
+    this.strategy.setSelection([]);
   }
 
   // ---- debug ------------------------------------------------------------------------------------
@@ -557,14 +823,16 @@ export class GameRuntime {
       // local collider
       if (this.ctrl && this.me?.alive) {
         const s = this.ctrl.sim;
-        if (s.cls === PlayerClass.Marine) dd.box(s.px - MARINE.colliderRadius, s.py, s.pz - MARINE.colliderRadius, s.px + MARINE.colliderRadius, s.py + MARINE.standingHeight, s.pz + MARINE.colliderRadius, 0x00ff88);
+        const w = walkerProfile(s.cls);
+        if (isWalker(s.cls)) dd.box(s.px - w.colliderRadius, s.py, s.pz - w.colliderRadius, s.px + w.colliderRadius, s.py + w.standingHeight, s.pz + w.colliderRadius, 0x00ff88);
         else dd.sphere(s.px, s.py, s.pz, RIPPER.colliderRadius, 0x00ff88);
       }
       for (const r of this.remotes.values()) {
         const st = r.lastInterp;
         const sn = r.snapshot;
         if (!st || !sn?.alive) continue;
-        if (sn.sim.cls === PlayerClass.Marine) dd.box(st.px - MARINE.colliderRadius, st.py, st.pz - MARINE.colliderRadius, st.px + MARINE.colliderRadius, st.py + MARINE.standingHeight, st.pz + MARINE.colliderRadius, 0x33aa66);
+        const w = walkerProfile(sn.sim.cls);
+        if (isWalker(sn.sim.cls)) dd.box(st.px - w.colliderRadius, st.py, st.pz - w.colliderRadius, st.px + w.colliderRadius, st.py + w.standingHeight, st.pz + w.colliderRadius, 0x33aa66);
         else dd.sphere(st.px, st.py, st.pz, RIPPER.colliderRadius, 0x33aa66);
       }
     }
@@ -573,6 +841,12 @@ export class GameRuntime {
         if (!p.alive) continue;
         const c = hurtCapsule(p.sim);
         dd.capsule(c.a, c.b, c.r, p.id === this.net.sessionId ? 0xffee00 : 0xff3355);
+      }
+    }
+    if (T.hurtVolumes) {
+      for (const st of this.view?.economy.structures ?? []) {
+        const b = structureHurtBox(st);
+        dd.box(b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z, st.faction === Faction.Expedition ? 0x00e5ff : 0xff3355);
       }
     }
     if (T.hitRays) for (const r of this.rays) dd.line(r.a.x, r.a.y, r.a.z, r.b.x, r.b.y, r.b.z, r.color);
@@ -662,6 +936,18 @@ export class GameRuntime {
       simJitterMs: this.net.sim.cfg.jitterMs,
       viewAssist: this.assist.enabled,
       toggles: { ...this.toggles },
+      econ: (() => {
+        const e = this.view?.economy;
+        return {
+          resExp: e?.resources[0] ?? 0,
+          resBloom: e?.resources[1] ?? 0,
+          incExp: e?.income[0] ?? 0,
+          incBloom: e?.income[1] ?? 0,
+          commander: this.view?.players.find((p) => p.id === e?.commanderId)?.name ?? '—',
+          structures: (e?.structures ?? []).map((x) => `${STRUCTURE_LABEL[x.type]} ${Math.round(x.hp)}/${x.maxHp} ${x.state === StructureState.Active ? 'active' : `building ${Math.round(x.progress * 100)}%`}`),
+          lastBuild: this.lastBuildText,
+        };
+      })(),
     };
   }
 
@@ -671,6 +957,43 @@ export class GameRuntime {
   }
 
   // ---- HUD / telemetry --------------------------------------------------------------------------
+
+  private strategyHud(me: PlayerSnapshot): Pick<HudState, 'faction' | 'commanding' | 'buildMode' | 'selected' | 'prompt' | 'orderText' | 'resources' | 'income' | 'enemyIncome' | 'commanderName' | 'well'> {
+    const v = this.view;
+    const f = factionOf(me.sim.cls);
+    const e = v?.economy;
+    const st = e?.structures.find((x) => x.nodeId === RESOURCE_NODES[0].id);
+    let prompt = '';
+    const ctx = this.interactContext();
+    if (!this.commanding && ctx === 'console') {
+      const cmd = e?.commanderId ? v?.players.find((p) => p.id === e.commanderId) : null;
+      prompt = cmd ? `Command Core in use by ${cmd.name}` : 'E — enter the Command Core';
+    } else if (ctx === 'well') {
+      prompt = st ? 'The well is occupied: destroy it first' : (e?.resources[Faction.Bloom] ?? 0) < STRUCTURE_COST.harvester ? `Need ${STRUCTURE_COST.harvester} resources for a Harvester` : `E — grow a Harvester (${STRUCTURE_COST.harvester})`;
+    } else if (!this.commanding && f === Faction.Bloom && this.ctrl && atOwnBase(me.sim.cls, this.ctrl.sim.px, this.ctrl.sim.pz)) {
+      prompt = `Hive: 2 — Ripper · 3 — Weaver (change form here; now ${CLASS_LABELS[me.sim.cls]})`;
+    } else if (this.commanding) {
+      prompt = this.buildMode ? 'Click the resource well to place the Extractor · RMB cancel' : `B — place Extractor (${STRUCTURE_COST.extractor}) · E — leave`;
+    }
+    let orderText = '';
+    if (me.sim.cls === PlayerClass.Marine && !this.commanding && this.ctrl) {
+      const o = me.order ?? e?.ping ?? null;
+      if (o) orderText = `${me.order ? 'WAYPOINT' : 'PING'} · ${Math.hypot(o.x - this.ctrl.sim.px, o.z - this.ctrl.sim.pz).toFixed(0)} m`;
+    }
+    return {
+      faction: f,
+      commanding: this.commanding,
+      buildMode: this.buildMode,
+      selected: this.selected.size,
+      prompt,
+      orderText,
+      resources: e?.resources[f] ?? 0,
+      income: e?.income[f] ?? 0,
+      enemyIncome: e?.income[1 - f] ?? 0,
+      commanderName: e?.commanderId ? (v?.players.find((p) => p.id === e.commanderId)?.name ?? '') : '',
+      well: st ? { label: STRUCTURE_LABEL[st.type], faction: st.faction, hp: st.hp, maxHp: st.maxHp, progress: st.progress, active: st.state === StructureState.Active } : null,
+    };
+  }
 
   private updateHud(now: number): void {
     if (now - this.lastHudAt < 100) return;
@@ -702,6 +1025,7 @@ export class GameRuntime {
           surface: sim?.surface ?? 0,
           locked: this.input.locked,
           rtt: this.net.clock.rtt,
+          ...this.strategyHud(me),
         }
       : emptyHud();
     this.damageDirs = this.damageDirs.filter((d) => now - d.at < 1200);

@@ -61,6 +61,29 @@ describe('room lifecycle', () => {
   });
 });
 
+describe('match start consistency', () => {
+  it('phase and every spawn change in the same patch (no "playing" with dead players)', async () => {
+    const a = new TestClient(url);
+    const code = await a.net.create({ name: 'H', dev: true });
+    const b = new TestClient(url);
+    await b.net.join(code, { name: 'G' });
+    await until(() => a.view?.players.length === 2, 2000, 'two players');
+    const room = roomOf(code);
+    let seen: { phase: string; alive: boolean[] } | null = null;
+    const orig = room.sim.startMatch.bind(room.sim);
+    room.sim.startMatch = () => {
+      orig();
+      // runs right after the start handler returns, before the tick loop or the patch timer can fire
+      queueMicrotask(() => (seen = { phase: room.state.phase, alive: [...room.state.players.values()].map((p) => p.alive) }));
+    };
+    a.net.start();
+    await until(() => seen !== null, 2000, 'start handled');
+    expect(seen).toEqual({ phase: 'playing', alive: [true, true] });
+    await a.net.leave();
+    await b.net.leave();
+  });
+});
+
 describe('authoritative play over real sockets', () => {
   it('movement replicates, rifle damage is server-side, death + 4 s respawn replicate', async () => {
     const a = new TestClient(url);
@@ -156,4 +179,88 @@ describe('authoritative play over real sockets', () => {
     expect(roomOf(code).sim.players.get(a.net.sessionId)!.rttMs).toBeGreaterThan(70);
     await a.net.leave();
   });
+});
+
+describe('VS02 strategy loop over real sockets', () => {
+  it('Commander builds an Extractor, income replicates, Rippers destroy it, a Weaver rebuilds the well as Bloom', async () => {
+    const cmd = new TestClient(url);
+    const code = await cmd.net.create({ name: 'Cmdr', dev: true });
+    const rip = new TestClient(url);
+    await rip.net.join(code, { name: 'Rip' });
+    const wea = new TestClient(url);
+    await wea.net.join(code, { name: 'Weav' });
+    await until(() => cmd.view?.players.length === 3, 3000, 'three players');
+    wea.net.setClass(2);
+    rip.net.setClass(1);
+    cmd.net.setClass(0);
+    await until(() => cmd.player(wea.net.sessionId)?.sim.cls === 2, 3000, 'weaver picked');
+    // a third Bloom human is refused (2 per side, D-31)
+    const extra = new TestClient(url);
+    await extra.net.join(code, { name: 'Extra' });
+    await until(() => cmd.view?.players.length === 4, 3000, 'four players');
+    extra.net.setClass(2);
+    await until(() => extra.notices.some((n) => /full/.test(n)), 3000, 'side full notice');
+    cmd.net.start();
+    await until(() => cmd.view?.phase === 'playing', 3000, 'playing');
+    const room = roomOf(code);
+
+    // wrong-role: a Marine outside Commander mode cannot build an Extractor
+    cmd.net.build('extractor', 'well-a');
+    await until(() => cmd.events.some((e) => e.t === 'build-result' && !e.ok && e.reason === 'wrong-role'), 3000, 'wrong-role reply');
+
+    // enter at the console and build
+    cmd.net.dev({ action: 'teleport', room: 'console' });
+    await sleep(150);
+    cmd.net.command('enter');
+    await until(() => cmd.me?.commanding === true && cmd.view?.economy.commanderId === cmd.net.sessionId, 3000, 'commanding replicated');
+    cmd.net.build('extractor', 'well-a');
+    await until(() => cmd.view?.economy.structures.length === 1, 3000, 'extractor replicated');
+    expect(cmd.view!.economy.resources[0]).toBeCloseTo(10, 1);
+    expect(rip.view!.economy.structures[0].type).toBe('extractor'); // the enemy sees it too
+    // fast-forward construction on the server (test-only poke), then income replicates
+    room.sim.econ.structures[0].buildTicks = 359;
+    await until(() => cmd.view?.economy.structures[0]?.state === 1 && cmd.view.economy.income[0] > 0.59, 3000, 'active + income');
+    const r0 = cmd.view!.economy.resources[0];
+    await sleep(1200);
+    expect(cmd.view!.economy.resources[0]).toBeGreaterThan(r0 + 0.4);
+
+    // occupied: the Weaver cannot build on it
+    wea.net.dev({ action: 'teleport', room: 'well' });
+    await sleep(150);
+    wea.net.build('harvester', 'well-a');
+    await until(() => wea.events.some((e) => e.t === 'build-result' && !e.ok && e.reason === 'node-occupied'), 3000, 'occupied reply');
+
+    // the Ripper attacks the collector: bites from beside the well until it is destroyed
+    const rp = room.sim.players.get(rip.net.sessionId)!;
+    rp.protectedUntilTick = 0;
+    for (let i = 0; i < 400 && (cmd.view?.economy.structures.length ?? 0) > 0; i++) {
+      if (i % 20 === 0) {
+        Object.assign(rp.sim, { px: 27.7, py: 0.29, pz: 16, vx: 0, vy: 0, vz: 0 });
+      }
+      rip.input({ yaw: -Math.PI / 2, pitch: 0, primary: true });
+      await sleep(16);
+    }
+    await until(() => cmd.view?.economy.structures.length === 0, 5000, 'extractor destroyed');
+    expect(cmd.events.some((e) => e.t === 'structure' && e.kind === 'destroyed')).toBe(true);
+
+    // the well is free again: the Weaver grows a Harvester and the Bloom starts earning
+    wea.net.build('harvester', 'well-a');
+    await until(() => wea.view?.economy.structures[0]?.type === 'harvester', 3000, 'harvester');
+    room.sim.econ.structures[0].buildTicks = 359;
+    await until(() => wea.view?.economy.income[1] !== undefined && wea.view.economy.income[1] > 0.59, 3000, 'bloom income');
+
+    // the Commander leaves the console
+    cmd.net.command('exit');
+    await until(() => cmd.me?.commanding === false, 3000, 'left command');
+
+    // economy is observable on /debug/telemetry
+    const res = await fetch(`http://127.0.0.1:${server.port}/debug/telemetry`);
+    const tel = (await res.json()) as { summary: Record<string, number>; rooms: Record<string, { structures: unknown[] }> };
+    expect(tel.summary.extractorsPlaced).toBeGreaterThanOrEqual(1);
+    expect(tel.summary.extractorsDestroyed).toBeGreaterThanOrEqual(1);
+    expect(tel.summary.buildRejects).toBeGreaterThanOrEqual(2);
+    expect(tel.summary.commanderEntries).toBeGreaterThanOrEqual(1);
+    expect(tel.rooms[code]).toBeTruthy();
+    for (const c of [cmd, rip, wea, extra]) await c.net.leave();
+  }, 30_000);
 });

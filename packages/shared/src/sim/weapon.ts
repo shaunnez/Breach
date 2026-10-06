@@ -1,4 +1,4 @@
-import { BITE, RIFLE, RIFLE_EXTRA, TICK_DT, secToTicks } from '../balance';
+import { BITE, RIFLE, RIFLE_EXTRA, TICK_DT, WEAVER, secToTicks } from '../balance';
 import { PlayerClass } from '../enums';
 import { clamp, lerp, hash01, DEG } from '../math';
 import type { InputFrame } from '../protocol';
@@ -10,7 +10,32 @@ const RELOAD_TICKS = secToTicks(RIFLE.reloadSec);
 const BITE_TICKS = secToTicks(BITE.cooldownSec);
 const BLOOM_DELAY_TICKS = Math.round(RIFLE_EXTRA.bloomRecoveryDelaySec * 60);
 
+const MELEE_TICKS = secToTicks(WEAVER.meleeCooldownSec);
+const PULSE_TICKS = secToTicks(WEAVER.healPulseCooldownSec);
+
 export const RELOAD_DURATION_TICKS = RELOAD_TICKS;
+export const WEAVER_MELEE_COOLDOWN_TICKS = MELEE_TICKS;
+export const HEAL_PULSE_COOLDOWN_TICKS = PULSE_TICKS;
+
+/** Weaver: weak melee (primary) and a held heal pulse (secondary) paid from its energy pool. */
+function stepWeaverAbilities(s: PlayerSim, input: InputFrame, out: StepResult): void {
+  if (s.biteCdTicks > 0) s.biteCdTicks--;
+  if (s.fireCdTicks > 0) s.fireCdTicks--;
+  s.energyIdle += TICK_DT;
+  if (s.energyIdle >= WEAVER.energyRegenDelaySec) s.energy = Math.min(WEAVER.maxEnergy, s.energy + WEAVER.energyRegenPerSec * TICK_DT);
+  if (input.primary) {
+    if (s.biteCdTicks === 0) {
+      out.bit = true;
+      s.biteCdTicks = MELEE_TICKS;
+    } else out.fireRejected = 'cooldown';
+  }
+  if (input.secondary && s.fireCdTicks === 0 && s.energy >= WEAVER.healPulseCost) {
+    out.healPulse = true;
+    s.energy -= WEAVER.healPulseCost;
+    s.energyIdle = 0;
+    s.fireCdTicks = PULSE_TICKS;
+  }
+}
 export const BITE_COOLDOWN_TICKS = BITE_TICKS;
 
 function startReload(s: PlayerSim, out: StepResult): void {
@@ -20,6 +45,10 @@ function startReload(s: PlayerSim, out: StepResult): void {
 
 /** Cadence, ammo, reload, spread: deterministic from the input stream, shared by prediction and server. */
 export function stepWeapon(s: PlayerSim, input: InputFrame, out: StepResult): void {
+  if (s.cls === PlayerClass.Weaver) {
+    stepWeaverAbilities(s, input, out);
+    return;
+  }
   if (s.cls === PlayerClass.Ripper) {
     if (s.biteCdTicks > 0) s.biteCdTicks--;
     if (input.primary) {

@@ -74,10 +74,10 @@ export class FirstPersonView {
     return this.rifle.muzzle.getWorldPosition(new THREE.Vector3());
   }
 
-  update(dt: number, s: PlayerSim, mode: 'marine' | 'ripper', firing: boolean): void {
+  update(dt: number, s: PlayerSim, mode: 'marine' | 'ripper' | 'weaver', firing: boolean): void {
     if (!this.visible) return;
     this.rifleRig.visible = mode === 'marine';
-    this.claws.visible = mode === 'ripper';
+    this.claws.visible = mode !== 'marine'; // the Weaver reuses the claw view-model (procedural stand-in, D-18)
     const speed = Math.hypot(s.vx, s.vz);
     const grounded = s.surface !== SurfaceState.Air;
     this.phase += dt * (4 + speed * 1.2) * (grounded ? 1 : 0.3);

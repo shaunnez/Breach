@@ -1,4 +1,4 @@
-import { PlayerClass, SurfaceViewAssist, TICK_DT, createTestCellA, emptyInput, type InputFrame } from '@breach/shared';
+import { PlayerClass, RESOURCE_NODES, SurfaceViewAssist, TICK_DT, WEAVER, commanderFrame, createTestCellA, emptyInput, type InputFrame } from '@breach/shared';
 import { GameNetClient } from '../../../apps/client/src/game/network/GameNetClient';
 import { PredictionController } from '../../../apps/client/src/game/network/PredictionController';
 import type { MatchView, PlayerSnapshot } from '../../../apps/client/src/game/network/types';
@@ -103,7 +103,9 @@ export class BotClient {
     } else {
       this.assist.reset(yaw, pitch);
     }
-    const { frame, before } = ctrl.predict({ ...emptyInput(0), ...patch, yaw, pitch, clientTimeMs: now });
+    const raw = { ...emptyInput(0), ...patch, yaw, pitch, clientTimeMs: now };
+    // a Commander's body stays at the console: predict the same neutral frame the server simulates
+    const { frame, before } = ctrl.predict(this.me.commanding ? commanderFrame(raw) : raw);
     this.net.queueInput(frame);
     if (ripper) {
       this.assist.onTick(before, ctrl.sim);
@@ -158,4 +160,16 @@ export const chasingRipper: BotBrain = (ctx) => {
   const yaw = Math.atan2(-dx, -dz);
   const pitch = Math.atan2(best.sim.py + 1 - s.py, Math.hypot(dx, dz));
   return { yaw, pitch: dist < 3 ? pitch : 0.1, moveZ: 1, moveX: Math.sin(ctx.tick / 25) * 0.4, jump: dist > 5 && dist < 11 && ctx.rnd() < 0.05, primary: dist < 1.9, secondary: ctx.rnd() < 0.002 };
+};
+
+/** Weaver: fights like a slow brawler near enemies (claw in reach), heal-pulses when hurt, otherwise heads for the well. */
+export const brawlingWeaver: BotBrain = (ctx) => {
+  const { best, dist } = nearestEnemy(ctx);
+  const s = ctx.me.sim;
+  const hurt = ctx.me.health < WEAVER.health * 0.7 && s.energy >= WEAVER.healPulseCost;
+  const target = best && dist < 9 ? { x: best.sim.px, z: best.sim.pz } : { x: RESOURCE_NODES[0].x - 2.4, z: RESOURCE_NODES[0].z };
+  const dx = target.x - s.px;
+  const dz = target.z - s.pz;
+  const far = Math.hypot(dx, dz) > 0.8;
+  return { yaw: Math.atan2(-dx, -dz), pitch: 0, moveZ: far ? 1 : 0, moveX: far ? Math.sin(ctx.tick / 40) * 0.3 : 0, primary: !!best && dist < 1.6, secondary: hurt, jump: ctx.rnd() < 0.005 };
 };

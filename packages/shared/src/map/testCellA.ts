@@ -1,5 +1,6 @@
 import { CollisionWorld, type Box, type BoxKind } from './collision';
 import type { DevRoom } from '../protocol';
+import { PlayerClass } from '../enums';
 
 /**
  * Refinery Test Cell A greybox (bible section 13). X east, Z south, Y up, metres.
@@ -125,6 +126,18 @@ function corridor(boxes: Box[], r: { x0: number; x1: number; z0: number; z1: num
   boxes.push(mk(x0 - (runsAlong === 'z' ? T : 0), h, z0 - (runsAlong === 'x' ? T : 0), x1 + (runsAlong === 'z' ? T : 0), h + T, z1 + (runsAlong === 'x' ? T : 0), 'ceiling'));
 }
 
+/** VS02 Command Core console against the Marine spawn's north wall. The Commander's body stands at (standX, standZ). */
+export const COMMAND_CONSOLE = { x: 6, z: 1.3, standX: 6, standZ: 2.2, yaw: 0 };
+
+/** VS02 resource wells. One active well at the centre of the Resource Room (bible section 35). */
+export interface ResourceNode {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+}
+export const RESOURCE_NODES: ResourceNode[] = [{ id: 'well-a', x: 30, y: 0.5, z: 16 }];
+
 const VENT = {
   yc: 3.3,
   half: 0.525,
@@ -150,6 +163,7 @@ function buildBoxes(): Box[] {
 
   // ---- Marine spawn -------------------------------------------------------------------------
   room(B, { x0: 1, x1: 11, z0: 1, z1: 9, h: 4 }, [{ side: 'S', c: 6, w: 2.4 }]);
+  B.push(mk(COMMAND_CONSOLE.x - 0.7, 0, 1, COMMAND_CONSOLE.x + 0.7, 1.1, 1.6, 'prop')); // Command Core console (VS02)
   corridor(B, { x0: 4.2, x1: 7.8, z0: 9.4, z1: 16.6, h: 3.6 }, 'z');
 
   // ---- Junction (vent mouth cut into the east wall) ------------------------------------------
@@ -172,7 +186,8 @@ function buildBoxes(): Box[] {
     { side: 'W', c: 19.2, w: 2.4 },
     { side: 'S', c: 30, w: 2.4 },
   ]);
-  B.push(mk(28.8, 0, 14.8, 31.2, 0.5, 17.2, 'prop')); // future resource well
+  B.push(mk(28.8, 0, 14.8, 31.2, 0.5, 17.2, 'prop')); // resource well plinth (VS02: the active well)
+  B.push(mk(29.45, 0.5, 15.45, 30.55, 2.1, 16.55, 'prop')); // well head: structures are built around it (D-30)
   B.push(mk(24, 4.2, 15.9, 36, 4.6, 16.4, 'prop')); // overhead pipe
   B.push(mk(24, 2.3, 11, 36, 2.6, 13.2, 'ledge')); // upper maintenance ledge
   for (let i = 0; i < 8; i++) {
@@ -269,6 +284,9 @@ export const DEV_TELEPORTS: Record<DevRoom, { marine: SpawnPoint; ripper: SpawnP
   hive: { marine: { x: 30, y: 0, z: 31, yaw: 0 }, ripper: { x: 30, y: 0.29, z: 31, yaw: 0 } },
   // Marines cannot fit the vent; place them at its junction-side approach instead.
   vent: { marine: { x: 8.6, y: 0, z: 22.4, yaw: -Math.PI / 2 }, ripper: { x: 12, y: 3.07, z: 22.4, yaw: -Math.PI / 2 } },
+  // VS02: in front of the Command Core console, and west of the well facing it
+  console: { marine: { x: 6, y: 0, z: 2.6, yaw: 0 }, ripper: { x: 6, y: 0.29, z: 2.8, yaw: 0 } },
+  well: { marine: { x: 27.6, y: 0, z: 16, yaw: -Math.PI / 2 }, ripper: { x: 27.6, y: 0.29, z: 16, yaw: -Math.PI / 2 } },
 };
 
 export const MAP_LIGHTS: MapLight[] = [
@@ -290,6 +308,12 @@ export const MAP_BOXES: Box[] = buildBoxes();
 
 export function createTestCellA(): CollisionWorld {
   return new CollisionWorld(MAP_BOXES.map((b) => ({ ...b })));
+}
+
+/** A side's base: the Hive for the Bloom, the Marine spawn for the Expedition (D-36: change class here while alive). */
+export const BASE_ROOM = { expedition: 'marineSpawn', bloom: 'hive' } as const;
+export function atOwnBase(cls: PlayerClass, x: number, z: number): boolean {
+  return roomAt(x, z) === (cls === PlayerClass.Marine ? BASE_ROOM.expedition : BASE_ROOM.bloom);
 }
 
 export function roomAt(x: number, z: number): string {

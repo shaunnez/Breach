@@ -5,7 +5,12 @@ import { useStore } from '../app/store';
 
 export function DebugPanel() {
   const d = useStore((s) => s.debug);
-  if (!d) return <div className="debug hint">F3 / ` : debug overlay</div>;
+  if (!d)
+    return (
+      <button className="debug hint" onClick={() => session.runtime?.toggleDebug()} data-testid="debug-toggle">
+        debug overlay (` or F3, or click)
+      </button>
+    );
   const rt = session.runtime;
   const row = (k: string, v: string | number, warn = false) => (
     <div className={`kv ${warn ? 'warn' : ''}`} key={k}>
@@ -33,6 +38,12 @@ export function DebugPanel() {
       {row('surface', d.surface)}
       {row('normal', d.normal)}
       {row('last shot / bite', d.lastShot)}
+      <h4>ECONOMY (server)</h4>
+      {row('resources exp / bloom', `${d.econ.resExp.toFixed(1)} / ${d.econ.resBloom.toFixed(1)}`)}
+      {row('income/s exp / bloom', `${d.econ.incExp.toFixed(1)} / ${d.econ.incBloom.toFixed(1)}`)}
+      {row('commander', d.econ.commander)}
+      {d.econ.structures.length ? d.econ.structures.map((t, i) => row(`structure ${i + 1}`, t)) : row('structures', 'none')}
+      {row('last build', d.econ.lastBuild)}
       <h4>TOGGLES</h4>
       <div className="toggles">
         {DEBUG_TOGGLES.map((t: DebugToggle) => (
@@ -64,6 +75,9 @@ export function DebugPanel() {
         ))}
         <button onClick={() => session.net.dev({ action: 'switchClass', cls: 0 })}>become Marine</button>
         <button onClick={() => session.net.dev({ action: 'switchClass', cls: 1 })}>become Ripper</button>
+        <button onClick={() => session.net.dev({ action: 'switchClass', cls: 2 })}>become Weaver</button>
+        <button onClick={() => session.net.dev({ action: 'grantResources', amount: 20 })}>+20 resources (both)</button>
+        <button onClick={() => session.net.dev({ action: 'spawnDummy', cls: 2 })}>+ weaver dummy</button>
         <button onClick={() => session.net.dev({ action: 'refill' })}>refill</button>
         <button onClick={() => session.net.dev({ action: 'spawnDummy', cls: 1 })}>+ ripper dummy</button>
         <button onClick={() => session.net.dev({ action: 'spawnDummy', cls: 0 })}>+ marine dummy</button>

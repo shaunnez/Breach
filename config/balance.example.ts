@@ -77,3 +77,12 @@ export const MATCH = {
   spawnProtectionSec: 1,
   maxPlayers: 4,
 } as const;
+
+// VS02 (bible section 32)
+export const ECONOMY = {
+  structureIncomePerSec: 0.6,
+  extractorCost: 10,
+  harvesterCost: 10,
+  startingResources: 20,
+  structureBuildSec: 6,
+} as const;

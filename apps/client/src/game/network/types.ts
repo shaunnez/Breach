@@ -1,4 +1,4 @@
-import type { GameEvent, MatchPhase, PlayerSim } from '@breach/shared';
+import type { GameEvent, MatchPhase, PlayerSim, StructureState, StructureType } from '@breach/shared';
 
 /** Plain (non-schema) view of one replicated player, extracted at patch time. */
 export interface PlayerSnapshot {
@@ -22,8 +22,44 @@ export interface PlayerSnapshot {
   damage: number;
   rttMs: number;
   pendingCls: number;
+  /** VS02 */
+  commanding: boolean;
+  order: OrderView | null;
   /** server time (tick based ms) this snapshot describes */
   t: number;
+}
+
+export interface OrderView {
+  kind: string;
+  x: number;
+  y: number;
+  z: number;
+  untilMs: number;
+}
+
+/** VS02 replicated structure (Extractor / Harvester). */
+export interface StructureView {
+  id: string;
+  type: StructureType;
+  faction: number;
+  nodeId: string;
+  x: number;
+  y: number;
+  z: number;
+  hp: number;
+  maxHp: number;
+  state: StructureState;
+  progress: number;
+  builderId: string;
+}
+
+/** VS02 economy view (server state). Index by Faction. */
+export interface EconomyView {
+  commanderId: string;
+  resources: [number, number];
+  income: [number, number];
+  ping: OrderView | null;
+  structures: StructureView[];
 }
 
 export interface MatchView {
@@ -36,6 +72,21 @@ export interface MatchView {
   dev: boolean;
   matchStartMs: number;
   players: PlayerSnapshot[];
+  economy: EconomyView;
+}
+
+export function extractEconomy(st: any): EconomyView {
+  const structures: StructureView[] = [];
+  st.structures?.forEach((x: any) =>
+    structures.push({ id: x.id, type: x.type, faction: x.faction, nodeId: x.nodeId, x: x.x, y: x.y, z: x.z, hp: x.hp, maxHp: x.maxHp, state: x.state, progress: x.progress, builderId: x.builderId }),
+  );
+  return {
+    commanderId: st.commanderId ?? '',
+    resources: [st.resExpedition ?? 0, st.resBloom ?? 0],
+    income: [st.incomeExpedition ?? 0, st.incomeBloom ?? 0],
+    ping: st.pingUntilMs > 0 ? { kind: st.pingKind, x: st.pingX, y: st.pingY, z: st.pingZ, untilMs: st.pingUntilMs } : null,
+    structures,
+  };
 }
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'lost';
@@ -100,6 +151,8 @@ export function extractPlayer(ps: any, t: number): PlayerSnapshot {
     damage: ps.damage,
     rttMs: ps.rttMs,
     pendingCls: ps.pendingCls,
+    commanding: !!ps.commanding,
+    order: ps.orderUntilMs > 0 ? { kind: ps.orderKind, x: ps.orderX, y: ps.orderY, z: ps.orderZ, untilMs: ps.orderUntilMs } : null,
     t,
   };
 }

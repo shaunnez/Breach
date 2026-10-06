@@ -1,5 +1,9 @@
 import { PlayerClass, SurfaceState } from '../enums';
-import { MARINE, RIFLE, RIPPER } from '../balance';
+import { MARINE, RIFLE, RIPPER, WEAVER } from '../balance';
+
+/** Per-class health / armour maxima (server rules + HUD). */
+export const maxHealthOf = (cls: PlayerClass): number => (cls === PlayerClass.Marine ? MARINE.health : cls === PlayerClass.Weaver ? WEAVER.health : RIPPER.health);
+export const maxArmourOf = (cls: PlayerClass): number => (cls === PlayerClass.Marine ? MARINE.armour : cls === PlayerClass.Weaver ? WEAVER.armour : RIPPER.armour);
 
 /**
  * The deterministic per-player simulation state. Everything needed to re-simulate an input frame
@@ -30,7 +34,7 @@ export interface PlayerSim {
   lockT: number;
   leapCd: number;
   energy: number;
-  /** seconds since energy last spent (regen delay) */
+  /** seconds since energy last spent (regen delay). Weaver: heal pulse cooldown lives in fireCdTicks. */
   energyIdle: number;
   prevJump: number;
   prevReload: number;
@@ -66,7 +70,7 @@ export function createPlayerSim(cls: PlayerClass, x: number, y: number, z: numbe
     detachT: 0,
     lockT: 0,
     leapCd: 0,
-    energy: cls === PlayerClass.Ripper ? RIPPER.maxEnergy : 0,
+    energy: cls === PlayerClass.Ripper ? RIPPER.maxEnergy : cls === PlayerClass.Weaver ? WEAVER.maxEnergy : 0,
     energyIdle: 1,
     prevJump: 0,
     prevReload: 0,
@@ -98,6 +102,8 @@ export interface StepResult {
   shotIndex: number;
   spreadDeg: number;
   bit: boolean;
+  /** Weaver: heal pulse released this tick (the server applies the healing) */
+  healPulse: boolean;
   /** an attack was requested but refused by cadence/ammo/reload */
   fireRejected: '' | 'empty' | 'reloading' | 'cooldown';
   reloadStarted: boolean;
@@ -118,6 +124,7 @@ export function newStepResult(): StepResult {
     shotIndex: 0,
     spreadDeg: 0,
     bit: false,
+    healPulse: false,
     fireRejected: '',
     reloadStarted: false,
     reloadFinished: false,
@@ -135,6 +142,7 @@ export function resetStepResult(r: StepResult): StepResult {
   r.shotIndex = 0;
   r.spreadDeg = 0;
   r.bit = false;
+  r.healPulse = false;
   r.fireRejected = '';
   r.reloadStarted = false;
   r.reloadFinished = false;

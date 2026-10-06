@@ -135,6 +135,12 @@ export function stepRipperMovement(s: PlayerSim, input: InputFrame, world: Colli
     s.detachT = 999;
     out.leaped = true;
     out.detachReason = 'leap';
+  } else if (attached && s.surface !== SurfaceState.Ground && !input.cling) {
+    // cling released on a wall/ceiling: fall off
+    v = projectOnPlane(v, n);
+    s.surface = SurfaceState.Air;
+    s.detachT = 999;
+    out.detachReason = 'drop';
   } else if (attached && input.secondary && s.lockT <= 0) {
     v = projectOnPlane(v, n);
     s.surface = SurfaceState.Air;
@@ -144,14 +150,14 @@ export function stepRipperMovement(s: PlayerSim, input: InputFrame, world: Colli
   }
 
   if (s.surface !== SurfaceState.Air) {
-    attachedStep(s, n, v, wish, hasInput, world, out);
+    attachedStep(s, n, v, wish, hasInput, input.cling, world, out);
   } else {
-    airStep(s, n, v, hasInput, mx, mz, frame, world, out);
+    airStep(s, n, v, hasInput, mx, mz, input.cling, frame, world, out);
   }
   out.moved = Math.hypot(s.px - ox, s.py - oy, s.pz - oz);
 }
 
-function attachedStep(s: PlayerSim, n0: Vec3, v0: Vec3, wish: Vec3, hasInput: boolean, world: CollisionWorld, out: StepResult): void {
+function attachedStep(s: PlayerSim, n0: Vec3, v0: Vec3, wish: Vec3, hasInput: boolean, cling: boolean, world: CollisionWorld, out: StepResult): void {
   const dt = TICK_DT;
   let n = n0;
   let vt = projectOnPlane(v0, n);
@@ -166,7 +172,8 @@ function attachedStep(s: PlayerSim, n0: Vec3, v0: Vec3, wish: Vec3, hasInput: bo
     vt = moveToward(vt, target, Math.max(RIPPER.surfaceAcceleration, 10 * dl) * dt);
   } else {
     const sp = len(vt);
-    const dec = (ground ? RIPPER_EXTRA.groundIdleDecel : RIPPER_EXTRA.surfaceIdleDecel) * dt;
+    // clinging with no input = hold position (brake like the floor); without cling, walls/ceilings keep momentum
+    const dec = (ground ? RIPPER_EXTRA.groundIdleDecel : cling ? RIPPER_EXTRA.clingIdleDecel : RIPPER_EXTRA.surfaceIdleDecel) * dt;
     vt = sp <= dec ? v3() : scale(vt, (sp - dec) / sp);
   }
   const sp0 = len(vt);
@@ -200,7 +207,7 @@ function attachedStep(s: PlayerSim, n0: Vec3, v0: Vec3, wish: Vec3, hasInput: bo
       const newGround = cn.y > 0.7;
       const stepFace = ground && Math.abs(cn.y) < 0.2 && c.box.maxY - (p.y - REST) <= 0.36;
       const intent = hasInput && dot(normalize(wish), scale(cn, -1)) > 0.25;
-      if (newGround || stepFace || (speed >= RIPPER.minWallAttachSpeed && intent)) {
+      if (newGround || stepFace || (cling && speed >= RIPPER.minWallAttachSpeed && intent)) {
         vt = redirect(vt, n, cn, 1);
         n = cn;
         setSurface(s, n, out);
@@ -216,6 +223,7 @@ function attachedStep(s: PlayerSim, n0: Vec3, v0: Vec3, wish: Vec3, hasInput: bo
     for (const c of near) {
       const a = c.nx * n.x + c.ny * n.y + c.nz * n.z;
       if (a < -0.3) continue;
+      if (!cling && c.ny <= 0.7) continue; // walk through doorways without snapping to the frame
       const score = c.dist - 0.12 * a;
       if (score < bestScore) {
         bestScore = score;
@@ -253,7 +261,8 @@ function attachedStep(s: PlayerSim, n0: Vec3, v0: Vec3, wish: Vec3, hasInput: bo
   if (s.detachT > GRACE) {
     s.surface = SurfaceState.Air;
     out.detachReason = 'no-surface';
-  } else if (s.surface !== SurfaceState.Ground && len(vt) < RIPPER_EXTRA.minWallSustainSpeed) {
+  } else if (!cling && s.surface !== SurfaceState.Ground && len(vt) < RIPPER_EXTRA.minWallSustainSpeed) {
+    // only without an explicit cling: holding it lets the Ripper sit stationary on a wall/ceiling
     s.surface = SurfaceState.Air;
     s.detachT = 999;
     out.detachReason = 'slow';
@@ -267,6 +276,7 @@ function airStep(
   hasInput: boolean,
   mx: number,
   mz: number,
+  cling: boolean,
   frame: SurfaceFrame,
   world: CollisionWorld,
   out: StepResult,
@@ -314,7 +324,7 @@ function airStep(
       const into = -dot(v, cn);
       if (into <= 0) continue;
       const speed = len(v);
-      if (s.lockT <= 0 && (cn.y > 0.7 || speed >= RIPPER.minWallAttachSpeed)) {
+      if (s.lockT <= 0 && (cn.y > 0.7 || (cling && speed >= RIPPER.minWallAttachSpeed))) {
         if (cn.y > 0.7) {
           v = projectOnPlane(v, cn);
           out.landed = true;

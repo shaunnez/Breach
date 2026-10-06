@@ -6,6 +6,7 @@ export interface InputSample {
   sprint: boolean;
   primary: boolean;
   secondary: boolean;
+  cling: boolean;
   interact: boolean;
   reload: boolean;
 }
@@ -108,6 +109,7 @@ export class InputController {
       sprint: k.has('ShiftLeft') || k.has('ShiftRight'),
       primary: this.buttons.has(0),
       secondary: this.buttons.has(2) || k.has('KeyC'),
+      cling: k.has('KeyF'),
       interact: k.has('KeyE'),
       reload: k.has('KeyR'),
     };

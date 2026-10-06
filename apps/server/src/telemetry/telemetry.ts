@@ -27,6 +27,8 @@ export class Telemetry {
   counters = new Map<string, number>();
   /** ring of recent events, exposed on /debug/telemetry */
   recent: Record<string, unknown>[] = [];
+  /** live per-room state published by rooms (VS02 economy snapshot), exposed on /debug/telemetry */
+  rooms = new Map<string, Record<string, unknown>>();
 
   constructor(level: LogLevel = 'info', sink: (line: string) => void = (l) => process.stdout.write(l + '\n')) {
     this.level = level;
@@ -61,6 +63,7 @@ export class Telemetry {
     const surfTotal = surf.reduce((a, b) => a + b, 0) || 1;
     const marineDeaths = c('death.marine');
     const ripperDeaths = c('death.ripper');
+    const nodeTotal = c('node.ticks.expedition') + c('node.ticks.bloom') + c('node.ticks.none');
     return {
       marineKillsPerRipperKill: ripperDeaths ? +(c('death.ripper') ? (ripperDeaths / Math.max(1, marineDeaths)).toFixed(2) : 0) : 0,
       avgEncounterTtkMs: c('ttk.count') ? Math.round(c('ttk.sumMs') / c('ttk.count')) : 0,
@@ -73,6 +76,17 @@ export class Telemetry {
       leaps: c('ripper.leaps'),
       reconciliationReports: c('client.reconciliations'),
       reconciliationsPerMinute: c('client.minutes') ? +(c('client.reconciliations') / c('client.minutes')).toFixed(2) : 0,
+      // VS02: who held the well, and how the strategy layer was used
+      nodeControlExpedition: nodeTotal ? +(c('node.ticks.expedition') / nodeTotal).toFixed(3) : 0,
+      nodeControlBloom: nodeTotal ? +(c('node.ticks.bloom') / nodeTotal).toFixed(3) : 0,
+      nodeControlNone: nodeTotal ? +(c('node.ticks.none') / nodeTotal).toFixed(3) : 0,
+      extractorsPlaced: c('structure.placed.extractor'),
+      harvestersPlaced: c('structure.placed.harvester'),
+      extractorsDestroyed: c('structure.destroyed.extractor'),
+      harvestersDestroyed: c('structure.destroyed.harvester'),
+      buildRejects: [...this.counters.entries()].filter(([k]) => k.startsWith('build.reject.')).reduce((a, [, v]) => a + v, 0),
+      commanderEntries: c('command.enter'),
+      healPulses: c('weaver.heal.pulses'),
     };
   }
 
