@@ -1,0 +1,31 @@
+{
+  "name": "@breach/gameplay-tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "soak": "tsx src/soak.ts",
+    "e2e": "playwright test",
+    "feel": "tsx src/feelReport.ts"
+  },
+  "dependencies": {
+    "@breach/client": "workspace:*",
+    "@breach/server": "workspace:*",
+    "@breach/shared": "workspace:*",
+    "colyseus.js": "^0.16.22",
+    "@colyseus/core": "^0.16.26",
+    "@colyseus/schema": "^3.0.76",
+    "@colyseus/ws-transport": "^0.16.5",
+    "express": "^4.21.2",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "~1.56.1",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.20.0",
+    "vitest": "^3.2.4",
+    "@types/express": "^4.17.21"
+  }
+}
