@@ -260,7 +260,8 @@ function attachedStep(s: PlayerSim, n0: Vec3, v0: Vec3, wish: Vec3, hasInput: bo
   if (s.detachT > GRACE) {
     s.surface = SurfaceState.Air;
     out.detachReason = 'no-surface';
-  } else if (s.surface !== SurfaceState.Ground && len(vt) < RIPPER_EXTRA.minWallSustainSpeed) {
+  } else if (!cling && s.surface !== SurfaceState.Ground && len(vt) < RIPPER_EXTRA.minWallSustainSpeed) {
+    // only without an explicit cling: holding it lets the Ripper sit stationary on a wall/ceiling
     s.surface = SurfaceState.Air;
     s.detachT = 999;
     out.detachReason = 'slow';

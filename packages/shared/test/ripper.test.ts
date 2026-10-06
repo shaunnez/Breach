@@ -42,6 +42,25 @@ describe('ripper traversal', () => {
     expect(Math.hypot(r.s.vx, r.s.vy, r.s.vz)).toBeLessThanOrEqual(RIPPER.maxTraversalSpeed + 1e-6);
   });
 
+  it('cling lets the Ripper sit stationary on a wall; releasing it drops', () => {
+    const r = ripper(3.4, 0.29, 23, EAST);
+    for (let i = 0; i < 200 && r.s.surface !== SurfaceState.Wall; i++) r.step({ moveZ: 1, cling: true }, true);
+    expect(r.s.surface).toBe(SurfaceState.Wall);
+    for (let i = 0; i < 90; i++) r.step({ cling: true }, true); // let the idle coast finish
+    const y0 = r.s.py;
+    for (let i = 0; i < 240; i++) r.step({ cling: true }, true); // 4 s of no input
+    expect(r.s.surface).toBe(SurfaceState.Wall);
+    expect(Math.abs(r.s.py - y0)).toBeLessThan(0.05);
+    r.step({ cling: false }, true);
+    expect(r.s.surface).toBe(SurfaceState.Air);
+  });
+
+  it('without cling, running at a wall does not attach', () => {
+    const r = ripper(3.4, 0.29, 23, EAST);
+    for (let i = 0; i < 200; i++) r.step({ moveZ: 1, cling: false }, true);
+    expect(r.log.some((l) => l.attached === SurfaceState.Wall)).toBe(false);
+  });
+
   it('wall attach needs speed: a slow crawl into a wall does not climb', () => {
     const r = ripper(8.6, 0.29, 23, EAST);
     for (let i = 0; i < 120; i++) r.step({ moveZ: 0.25 }, false);

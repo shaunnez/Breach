@@ -38,7 +38,7 @@ Automated netcode numbers are in `docs/VS01_STATUS.md`.
    ease time constant (`SurfaceViewAssist.tau`, 70 ms), assist only on concave corners, or full surface-relative roll as the
    accessibility option the bible reserves for later.
 2. **Wall stickiness.** A Ripper that stops pressing W on a wall coasts for ~0.5 s (12 m/s² idle decel) and then drops at
-   < 2 m/s. If ambush hangs on ceilings are wanted, lower `surfaceIdleDecel` / `minWallSustainSpeed`, or add an explicit hold.
+   < 2 m/s. If ambush hangs on ceilings are wanted, lower `surfaceIdleDecel` / `minWallSustainSpeed`, (superseded: holding cling (F) now keeps the Ripper stationary on walls/ceilings).
 3. **Leap length at level aim is 5 m** (7–9 m needs 6–11° of upward aim). If testers aim flat and find it short, raise
    `leapForwardImpulse` or lower `airGravity` rather than teaching an aim habit.
 4. **Bite reach (1.35 m to target surface).** A 0.55 s cooldown with one chance per approach may feel punishing under 100 ms+
