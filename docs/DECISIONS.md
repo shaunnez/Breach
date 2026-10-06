@@ -196,3 +196,8 @@ or **3** (Weaver) and changes form on the spot, at a Bloom spawn point with full
 3 s cooldown (`CLASS_CHANGE.baseCooldownSec`) so it cannot be spammed as a free heal. Anywhere else, or while dead, the request queues for the next
 spawn as before (D-21). Side changes never happen on the spot. The Marine spawn counts as the Expedition base, but Marines have only one class (the
 Commander is entered at the console). VS03's "evolution" (with a cost) can build on this.
+
+**D-37 — Lobby picks a side, not a class; invite links join directly.** Owner request (2026-10-06): the lobby offers **Marine** (Expedition) or
+**Hive** (Bloom). Hive players spawn as Rippers and change to a Weaver in the Hive (D-36); a Marine becomes the Commander at the console. The
+"Copy invite link" button copies the full URL (`/play?room=CODE`, plus `&dev=1` for dev rooms). Opening it resumes a held seat if there is one, otherwise
+joins the room immediately under the player's saved callsign. If the room is full or gone, the landing page shows why, with the code already filled in.

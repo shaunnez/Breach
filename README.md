@@ -21,8 +21,8 @@ pnpm install
 pnpm dev            # game server :2567 + Vite client :5173 -> open http://localhost:5173/play
 ```
 
-Open two browser windows, **Create room** in one, paste the 6-character code in the other, pick sides, **Start match**
-(host). Click the canvas to capture the mouse.
+Open two browser windows, **Create room** in one, then either open the copied invite link in the other (it joins straight in) or paste
+the 6-character code. Pick a side (**Marine** or **Hive**) and the host clicks **Start match**. Click the canvas to capture the mouse.
 
 | | Marine | Ripper |
 |---|---|---|
@@ -33,7 +33,7 @@ Open two browser windows, **Create room** in one, paste the 6-character code in 
 
 | | Commander (a Marine at the console) | Weaver (Bloom) |
 |---|---|---|
-| Enter / leave | **E** at the Command Core console (Marine spawn, north wall) | pick Weaver in the lobby, press **3** while dead, or press **3** (Weaver) / **2** (Ripper) while standing in the Hive |
+| Enter / leave | **E** at the Command Core console (Marine spawn, north wall) | pick **Hive** in the lobby, then press **3** (Weaver) / **2** (Ripper) while standing in the Hive, or while dead |
 | Controls | WASD pan · wheel or Q/Z zoom · LMB select Marines (shift adds) · RMB move order (selected) or ping · **B** place Extractor (10) on the well · **E** leave | WASD (slow, no climbing) · LMB claw · RMB heal pulse (40 energy) · **E** at the well grows a Harvester (10) |
 
 Economy (bible 32): both sides start with 20. A finished Extractor or Harvester on the well pays its side 0.6/s. Building takes 6 s.

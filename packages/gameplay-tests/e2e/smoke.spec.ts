@@ -15,25 +15,29 @@ test.afterEach(async () => {
 async function newPlayer(browser: Browser, name: string, query = ''): Promise<Page> {
   const ctx = await browser.newContext({ viewport: { width: 480, height: 270 } });
   opened.push(ctx);
+  // the callsign is remembered locally, so an invite link can join before the landing page is ever touched
+  await ctx.addInitScript((n) => localStorage.setItem('breach.name', n), name);
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.log(`[${name}] pageerror`, e.message));
   await page.goto(`/play?${query}`);
-  await page.fill('[data-testid=name]', name);
   return page;
 }
+
+const pickSide = (cls: 'marine' | 'ripper' | 'weaver') => (cls === 'marine' ? '[data-testid=pick-marine]' : '[data-testid=pick-hive]');
 
 async function startMatch(browser: Browser, opts: { dev?: boolean; lag?: number; aClass?: 'marine' | 'ripper' | 'weaver'; bClass?: 'marine' | 'ripper' | 'weaver' } = {}) {
   const q = [opts.dev ? 'dev=1' : '', opts.lag ? `lag=${opts.lag}&jitter=${Math.round(opts.lag / 5)}` : ''].filter(Boolean).join('&');
   const a = await newPlayer(browser, 'Alice', q);
+  await a.fill('[data-testid=name]', 'Alice');
   await a.click('[data-testid=create]');
   await a.waitForSelector('[data-testid=roomcode]');
   const code = (await a.textContent('[data-testid=roomcode]'))!.trim();
   expect(code).toMatch(/^[A-Z2-9]{6}$/);
+  // the invite link joins by itself
   const b = await newPlayer(browser, 'Bob', q + `&room=${code}`);
-  await b.click('[data-testid=join]');
   await b.waitForSelector('[data-testid=roomcode]');
-  await a.click(`[data-testid=pick-${opts.aClass ?? 'marine'}]`);
-  await b.click(`[data-testid=pick-${opts.bClass ?? 'ripper'}]`);
+  await a.click(pickSide(opts.aClass ?? 'marine'));
+  await b.click(pickSide(opts.bClass ?? 'ripper'));
   await expect(a.locator('table.players tbody tr')).toHaveCount(2);
   await a.click('[data-testid=start]');
   await a.waitForSelector('[data-testid=clickplay]');
@@ -42,6 +46,15 @@ async function startMatch(browser: Browser, opts: { dev?: boolean; lag?: number;
   await b.click('[data-testid=clickplay]');
   await a.waitForFunction(() => window.__breach?.ctrl);
   await b.waitForFunction(() => window.__breach?.ctrl);
+  // the lobby offers Marine or Hive; a Weaver is a Hive player who changed form (dev shortcut here, keys 2/3 in the Hive)
+  for (const [p, cls] of [
+    [a, opts.aClass],
+    [b, opts.bClass],
+  ] as const) {
+    if (cls !== 'weaver') continue;
+    await p.evaluate(() => window.__breach.net.dev({ action: 'switchClass', cls: 2 }));
+    await p.waitForFunction(() => window.__breach.ctrl?.sim.cls === 2);
+  }
   return { a, b, code };
 }
 
@@ -223,4 +236,26 @@ test('a living Ripper changes into a Weaver in the Hive with 3 (and back with 2)
   await a.waitForTimeout(3200); // in-base change cooldown
   await a.keyboard.press('Digit2');
   await a.waitForFunction(() => window.__breach.ctrl.sim.cls === 1 && window.__breach.me.alive);
+});
+
+test('invite link: copies the full URL, joins straight into the room, and only prefills the code when the room is full', async ({ browser }) => {
+  const host = await newPlayer(browser, 'Host', 'dev=1');
+  await host.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await host.click('[data-testid=create]');
+  await host.waitForSelector('[data-testid=roomcode]');
+  const code = (await host.textContent('[data-testid=roomcode]'))!.trim();
+  await host.click('[data-testid=copy-invite]');
+  const link = await host.evaluate(() => navigator.clipboard.readText());
+  expect(link).toBe(`${new URL(host.url()).origin}/play?room=${code}&dev=1`);
+  const path = new URL(link).pathname + new URL(link).search;
+  // three guests fill the room by opening the link
+  for (const n of ['G1', 'G2', 'G3']) {
+    const g = await newPlayer(browser, n, path.replace('/play?', ''));
+    await g.waitForSelector('[data-testid=roomcode]');
+  }
+  await expect(host.locator('table.players tbody tr')).toHaveCount(4);
+  // a fifth: the room is full, so the landing page keeps the code ready instead
+  const late = await newPlayer(browser, 'Late', path.replace('/play?', ''));
+  await expect(late.locator('[data-testid=error]')).toBeVisible();
+  await expect(late.locator('[data-testid=code]')).toHaveValue(code);
 });

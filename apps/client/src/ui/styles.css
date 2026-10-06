@@ -41,7 +41,10 @@ h1 span { color: var(--crimson); }
 .controls ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 .controls b { color: var(--text); }
 .devnote, .hint { color: var(--orange); font-size: 0.8rem; margin: 0; }
-.roomcode { display: flex; align-items: center; gap: 14px; }
+.lobby .card { width: min(720px, 100%); }
+.lobby .row button { white-space: nowrap; }
+.roomcode { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
+.hint.dim { color: var(--dim); }
 .roomcode small { color: var(--dim); }
 .roomcode strong { font-size: 2.2rem; letter-spacing: 0.25em; color: var(--cyan); flex: 1; }
 .players { width: 100%; border-collapse: collapse; font-size: 0.95rem; }

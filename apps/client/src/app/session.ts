@@ -1,4 +1,4 @@
-import { PlayerClass, type GameEvent } from '@breach/shared';
+import { PlayerClass, ROOM_CODE_LENGTH, normalizeRoomCode, type GameEvent } from '@breach/shared';
 import { GameNetClient } from '../game/network/GameNetClient';
 import type { ConnectionStatus, MatchView } from '../game/network/types';
 import type { GameRuntime } from '../game/bootstrap/GameRuntime';
@@ -84,8 +84,17 @@ class Session {
     }
   }
 
+  /**
+   * On load: resume a held seat (page reload), else follow an invite link (?room=CODE) straight into the room.
+   * If that room is full or gone the landing page keeps the code filled in, with the reason.
+   */
   async resume(): Promise<void> {
-    if (await this.net.tryResume()) setState({ screen: 'lobby' });
+    if (await this.net.tryResume()) {
+      setState({ screen: 'lobby' });
+      return;
+    }
+    const code = normalizeRoomCode(params.get('room') ?? '');
+    if (code.length === ROOM_CODE_LENGTH && getState().screen === 'landing') await this.join(code);
   }
 
   async leave(): Promise<void> {

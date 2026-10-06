@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { CLASS_LABELS, ECONOMY, Faction, PlayerClass, MATCH, NET, factionOf } from '@breach/shared';
 import { session } from '../app/session';
 import { setState, useStore } from '../app/store';
@@ -98,7 +98,22 @@ function Landing() {
   );
 }
 
+/** Full shareable URL: opening it joins the room directly (or just fills the code in if the room is full). */
+export function inviteLink(code: string, dev: boolean): string {
+  return `${location.origin}/play?room=${code}${dev ? '&dev=1' : ''}`;
+}
+
 function Lobby() {
+  const [copied, setCopied] = useState(false);
+  const copyInvite = async (link: string) => {
+    try {
+      await navigator.clipboard.writeText(link);
+    } catch {
+      window.prompt('Copy this invite link', link); // clipboard blocked (http / permissions): let the player copy it by hand
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
   const match = useStore((s) => s.match);
   const me = useStore((s) => s.sessionId);
   const dev = useStore((s) => s.dev);
@@ -107,11 +122,11 @@ function Lobby() {
   const players = [...match.players].filter((p) => !p.dummy).sort((a, b) => a.seat - b.seat);
   const amHost = match.hostId === me;
   const mine = players.find((p) => p.id === me);
-  const count = (c: number) => players.filter((p) => p.sim.cls === c).length;
   const side = (f: Faction) => players.filter((p) => factionOf(p.sim.cls) === f).length;
   const cap = Math.ceil(MATCH.maxPlayers / 2);
   const full = (c: PlayerClass) => side(factionOf(c)) >= cap && (!mine || factionOf(mine.sim.cls) !== factionOf(c));
-  const link = `${location.origin}/play?room=${match.roomCode}`;
+  const link = inviteLink(match.roomCode, match.dev);
+  const bloom = !!mine && factionOf(mine.sim.cls) === Faction.Bloom;
   return (
     <main className="landing lobby">
       <h1>
@@ -121,7 +136,9 @@ function Lobby() {
         <div className="roomcode">
           <small>Room code</small>
           <strong data-testid="roomcode">{match.roomCode}</strong>
-          <button onClick={() => void navigator.clipboard?.writeText(link)}>Copy invite link</button>
+          <button onClick={() => void copyInvite(link)} data-testid="copy-invite">
+            {copied ? 'Copied!' : 'Copy invite link'}
+          </button>
         </div>
         <table className="players">
           <thead>
@@ -146,15 +163,15 @@ function Lobby() {
           </tbody>
         </table>
         <div className="row">
-          <button className={mine?.sim.cls === PlayerClass.Marine ? 'primary marine' : 'marine'} disabled={full(PlayerClass.Marine)} onClick={() => session.setClass(PlayerClass.Marine)} data-testid="pick-marine">
-            Marine ({count(0)}) · Expedition {side(Faction.Expedition)}/{cap}
+          <button className={mine && !bloom ? 'primary marine' : 'marine'} disabled={full(PlayerClass.Marine)} onClick={() => session.setClass(PlayerClass.Marine)} data-testid="pick-marine">
+            Marine · Expedition {side(Faction.Expedition)}/{cap}
           </button>
-          <button className={mine?.sim.cls === PlayerClass.Ripper ? 'primary ripper' : 'ripper'} disabled={full(PlayerClass.Ripper)} onClick={() => session.setClass(PlayerClass.Ripper)} data-testid="pick-ripper">
-            Ripper ({count(1)})
+          <button className={bloom ? 'primary ripper' : 'ripper'} disabled={full(PlayerClass.Ripper)} onClick={() => !bloom && session.setClass(PlayerClass.Ripper)} data-testid="pick-hive">
+            Hive · Bloom {side(Faction.Bloom)}/{cap}
           </button>
-          <button className={mine?.sim.cls === PlayerClass.Weaver ? 'primary ripper' : 'ripper'} disabled={full(PlayerClass.Weaver)} onClick={() => session.setClass(PlayerClass.Weaver)} data-testid="pick-weaver">
-            Weaver ({count(2)}) · Bloom {side(Faction.Bloom)}/{cap}
-          </button>
+        </div>
+        <p className="hint dim">Hive players start as Rippers and can change to a Weaver (3) or back (2) while standing in the Hive.</p>
+        <div className="row">
         </div>
         <div className="row">
           {amHost ? (
