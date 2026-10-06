@@ -61,6 +61,29 @@ describe('room lifecycle', () => {
   });
 });
 
+describe('match start consistency', () => {
+  it('phase and every spawn change in the same patch (no "playing" with dead players)', async () => {
+    const a = new TestClient(url);
+    const code = await a.net.create({ name: 'H', dev: true });
+    const b = new TestClient(url);
+    await b.net.join(code, { name: 'G' });
+    await until(() => a.view?.players.length === 2, 2000, 'two players');
+    const room = roomOf(code);
+    let seen: { phase: string; alive: boolean[] } | null = null;
+    const orig = room.sim.startMatch.bind(room.sim);
+    room.sim.startMatch = () => {
+      orig();
+      // runs right after the start handler returns, before the tick loop or the patch timer can fire
+      queueMicrotask(() => (seen = { phase: room.state.phase, alive: [...room.state.players.values()].map((p) => p.alive) }));
+    };
+    a.net.start();
+    await until(() => seen !== null, 2000, 'start handled');
+    expect(seen).toEqual({ phase: 'playing', alive: [true, true] });
+    await a.net.leave();
+    await b.net.leave();
+  });
+});
+
 describe('authoritative play over real sockets', () => {
   it('movement replicates, rifle damage is server-side, death + 4 s respawn replicate', async () => {
     const a = new TestClient(url);

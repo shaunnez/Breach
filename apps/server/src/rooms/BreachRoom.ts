@@ -119,13 +119,15 @@ export class BreachRoom extends Room<MatchSchema> {
         return;
       }
       this.sim.startMatch();
-      this.state.phase = this.sim.phase;
       this.state.matchStartMs = this.sim.timeMs;
+      // phase and every player's spawn must reach clients in the same patch (the patch timer is independent of the tick loop)
+      this.syncState();
     });
     this.onMessage(MSG.resetMatch, (client) => {
       if (client.sessionId !== this.state.hostId || this.sim.phase !== 'playing') return;
       this.sim.resetMatch();
       this.state.matchStartMs = this.sim.timeMs;
+      this.syncState();
     });
     this.onMessage(MSG.dev, (client, a: DevAction) => {
       if (!this.devEnabled || !a || typeof a.action !== 'string') return;
