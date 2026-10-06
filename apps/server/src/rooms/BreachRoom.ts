@@ -1,6 +1,8 @@
 import { Room, type Client } from '@colyseus/core';
 import {
+  BUILD_TICKS,
   CLASS_NAMES,
+  Faction,
   MATCH,
   MSG,
   NET,
@@ -10,6 +12,8 @@ import {
   TICK_MS,
   clamp,
   factionOf,
+  incomePerSec,
+  isPlayerClass,
   type DevAction,
   type InputBatchMsg,
   type PingMsg,
@@ -18,7 +22,7 @@ import {
 } from '@breach/shared';
 import { Simulation, type ServerPlayer } from '../simulation/Simulation';
 import type { Telemetry } from '../telemetry/telemetry';
-import { MatchSchema, PlayerSchema } from './schema';
+import { MatchSchema, PlayerSchema, StructureSchema } from './schema';
 
 export interface BreachRoomOptions {
   name?: string;
@@ -94,9 +98,16 @@ export class BreachRoom extends Room<MatchSchema> {
       if (p) p.name = cleanName(name);
     });
     this.onMessage(MSG.setClass, (client, cls: unknown) => {
-      if (cls !== 0 && cls !== 1) return;
-      if (!this.sim.setClass(client.sessionId, cls as PlayerClass)) client.send(MSG.notice, { text: 'That class is full (max 2 per side).' });
+      if (!isPlayerClass(cls)) return;
+      if (!this.sim.setClass(client.sessionId, cls)) client.send(MSG.notice, { text: 'That side is full (max 2 per side).' });
     });
+    // VS02: Commander mode, build requests, orders (validated + rate limited in Simulation)
+    this.onMessage(MSG.command, (client, m: { action?: unknown }) => {
+      if (m?.action === 'enter') this.sim.enterCommand(client.sessionId);
+      else if (m?.action === 'exit') this.sim.exitCommand(client.sessionId);
+    });
+    this.onMessage(MSG.build, (client, m: unknown) => this.sim.requestBuild(client.sessionId, m));
+    this.onMessage(MSG.order, (client, m: unknown) => this.sim.order(client.sessionId, m));
     this.onMessage(MSG.start, (client) => {
       if (client.sessionId !== this.state.hostId) return;
       if (this.sim.phase !== 'warmup' || this.sim.players.size < 2) {
@@ -148,9 +159,9 @@ export class BreachRoom extends Room<MatchSchema> {
     let seat = 0;
     const used = new Set([...this.sim.players.values()].filter((p) => !p.isDummy).map((p) => p.seat));
     while (used.has(seat)) seat++;
-    const marines = this.sim.classCount(PlayerClass.Marine);
-    const rippers = this.sim.classCount(PlayerClass.Ripper);
-    const cls = marines <= rippers ? PlayerClass.Marine : PlayerClass.Ripper;
+    const exp = this.sim.factionCount(Faction.Expedition);
+    const bloom = this.sim.factionCount(Faction.Bloom);
+    const cls = exp <= bloom ? PlayerClass.Marine : PlayerClass.Ripper;
     const p = this.sim.addPlayer(client.sessionId, cleanName(options?.name), cls, seat);
     if (!this.state.hostId || !this.sim.players.get(this.state.hostId)) {
       this.state.hostId = client.sessionId;
@@ -165,6 +176,7 @@ export class BreachRoom extends Room<MatchSchema> {
     this.pingSent.delete(client.sessionId);
     if (!consented) {
       p.connected = false;
+      if (p.commanding) this.sim.exitCommand(p.id, 'left'); // a held seat cannot command
       this.sim.telemetry.info('player-disconnected', { roomId: this.roomId, playerId: client.sessionId, serverTick: this.sim.tick });
       try {
         await this.allowReconnection(client, NET.reconnectSeatHoldMs / 1000);
@@ -189,6 +201,7 @@ export class BreachRoom extends Room<MatchSchema> {
   }
 
   override async onDispose(): Promise<void> {
+    this.sim.telemetry.rooms.delete(this.roomId);
     await this.presence.srem(this.roomName, this.roomId);
     this.sim.telemetry.info('room-disposed', { roomId: this.roomId, matchId: this.sim.matchId });
   }
@@ -235,6 +248,7 @@ export class BreachRoom extends Room<MatchSchema> {
       });
       this.tickMsMax = 0;
     }
+    if (steps > 0 && this.sim.tick % 30 === 0) this.sim.telemetry.rooms.set(this.roomId, this.sim.economySnapshot());
   }
 
   private sendPings(now: number): void {
@@ -269,6 +283,40 @@ export class BreachRoom extends Room<MatchSchema> {
         st.players.set(p.id, ps);
       }
       writePlayer(ps, p, this.sim.tick, this.state.hostId);
+    }
+    // VS02 economy
+    const e = this.sim.econ;
+    st.commanderId = this.sim.commanderId;
+    st.resExpedition = e.teams[Faction.Expedition].resources;
+    st.resBloom = e.teams[Faction.Bloom].resources;
+    st.incomeExpedition = incomePerSec(e, Faction.Expedition);
+    st.incomeBloom = incomePerSec(e, Faction.Bloom);
+    const ping = this.sim.teamPing;
+    st.pingKind = ping ? ping.kind : '';
+    st.pingX = ping?.x ?? 0;
+    st.pingY = ping?.y ?? 0;
+    st.pingZ = ping?.z ?? 0;
+    st.pingUntilMs = ping ? ping.untilTick * TICK_MS : 0;
+    const live = new Set(e.structures.map((x) => x.id));
+    for (const id of [...st.structures.keys()]) if (!live.has(id)) st.structures.delete(id);
+    for (const x of e.structures) {
+      let ss = st.structures.get(x.id);
+      if (!ss) {
+        ss = new StructureSchema();
+        ss.id = x.id;
+        ss.type = x.type;
+        ss.faction = x.faction;
+        ss.nodeId = x.nodeId;
+        ss.x = x.x;
+        ss.y = x.y;
+        ss.z = x.z;
+        ss.maxHp = x.maxHp;
+        ss.builderId = x.builderId;
+        st.structures.set(x.id, ss);
+      }
+      ss.hp = Math.round(x.hp);
+      ss.state = x.state;
+      ss.progress = Math.min(1, x.buildTicks / BUILD_TICKS);
     }
   }
 }
@@ -324,4 +372,10 @@ function writePlayer(ps: PlayerSchema, p: ServerPlayer, tick: number, hostId: st
   ps.damage = Math.round(p.damage);
   ps.rttMs = Math.round(p.rttMs);
   ps.pendingCls = p.pendingCls ?? 255;
+  ps.commanding = p.commanding;
+  ps.orderKind = p.order ? p.order.kind : '';
+  ps.orderX = p.order?.x ?? 0;
+  ps.orderY = p.order?.y ?? 0;
+  ps.orderZ = p.order?.z ?? 0;
+  ps.orderUntilMs = p.order ? p.order.untilTick * TICK_MS : 0;
 }

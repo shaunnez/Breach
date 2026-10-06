@@ -1,6 +1,40 @@
 import {
   BITE,
+  BUILD_TICKS,
   CLASS_NAMES,
+  COMMAND,
+  COMMAND_CONSOLE,
+  Faction,
+  MAP_BOUNDS,
+  RESOURCE_NODES,
+  STRUCTURE,
+  STRUCTURE_COST,
+  STRUCTURE_LABEL,
+  StructureState,
+  WEAVER,
+  closestOnAabb,
+  createEconomy,
+  damageStructure,
+  findNode,
+  healStructure,
+  incomePerSec,
+  isPlayerClass,
+  isStructureType,
+  maxArmourOf,
+  maxHealthOf,
+  nodeController,
+  placeStructure,
+  rayAabb,
+  stepEconomy,
+  structureHurtBox,
+  validateBuild,
+  type BuildRejectReason,
+  type BuildRequest,
+  type CommandRejectReason,
+  type DamageKind,
+  type EconomyState,
+  type OrderMsg,
+  type Structure,
   DEV_TELEPORTS,
   BLOOM_SPAWNS,
   MARINE,
@@ -42,6 +76,9 @@ import {
   type SpawnPoint,
   type Vec3,
 } from '@breach/shared';
+
+/** horizontal distance */
+const hdist = (ax: number, az: number, bx: number, bz: number): number => Math.hypot(ax - bx, az - bz);
 import { Telemetry, silentTelemetry } from '../telemetry/telemetry';
 
 export const MAX_QUEUE = 12;
@@ -50,6 +87,8 @@ export const MAX_BATCH = 8;
 export const MAX_FRAMES_PER_SEC = 90;
 const HISTORY_TICKS = 48;
 const BITE_HALF_ARC = (BITE.horizontalArcDeg / 2) * (Math.PI / 180);
+const MELEE_HALF_ARC = (WEAVER.meleeArcDeg / 2) * (Math.PI / 180);
+const ORDER_TTL_TICKS = secToTicks(COMMAND.orderTtlSec);
 /** Defensive upper bound on one tick of displacement (never hit by honest simulation). */
 export const MAX_TICK_MOVE = 0.6;
 
@@ -62,6 +101,20 @@ export interface PlayerStats {
   rejectedInputs: number;
   inputsDropped: number;
   ticksBySurface: [number, number, number, number];
+  /** VS02 */
+  structureDamage: number;
+  healed: number;
+  heals: number;
+  builds: number;
+  buildRejects: number;
+}
+
+export interface Order {
+  kind: 'move' | 'ping';
+  x: number;
+  y: number;
+  z: number;
+  untilTick: number;
 }
 
 export interface ServerPlayer {
@@ -94,6 +147,12 @@ export interface ServerPlayer {
   frameWindow: number[];
   stats: PlayerStats;
   lastShot: { seq: number; result: ShotRejectReason; hit: boolean; rewindMs: number };
+  /** VS02: in Commander mode (body frozen at the console, inputs neutralised) */
+  commanding: boolean;
+  /** VS02: latest Commander waypoint / ping for this Marine */
+  order: Order | null;
+  /** VS02: command/build/order message timestamps (rate limit) */
+  msgWindow: number[];
 }
 
 export interface OutEvent {
@@ -122,6 +181,12 @@ export class Simulation {
   private nextSeed = 0x1234abcd;
   private dummyCounter = 0;
   private spawnCursor = { marine: 0, ripper: 0 };
+  /** VS02 economy: the only live copy (D-26) */
+  econ: EconomyState = createEconomy();
+  commanderId = '';
+  /** team-wide Commander ping (null when none) */
+  teamPing: Order | null = null;
+  private econOut = { completed: [] as Structure[] };
 
   constructor(telemetry: Telemetry = silentTelemetry(), world: CollisionWorld = createTestCellA()) {
     this.telemetry = telemetry;
@@ -143,8 +208,8 @@ export class Simulation {
       cls,
       pendingCls: null,
       sim: createPlayerSim(cls, sp.x, sp.y, sp.z, sp.yaw, (this.nextSeed = (Math.imul(this.nextSeed, 1664525) + 1013904223) >>> 0)),
-      health: cls === PlayerClass.Marine ? MARINE.health : RIPPER.health,
-      armour: cls === PlayerClass.Marine ? MARINE.armour : RIPPER.armour,
+      health: maxHealthOf(cls),
+      armour: maxArmourOf(cls),
       alive: this.phase === 'playing' || isDummy,
       respawnAtTick: 0,
       protectedUntilTick: 0,
@@ -163,14 +228,18 @@ export class Simulation {
       prevPrimary: false,
       firstDamagedAtTick: 0,
       frameWindow: [],
-      stats: { shotsFired: 0, shotsHit: 0, bites: 0, biteHits: 0, leaps: 0, rejectedInputs: 0, inputsDropped: 0, ticksBySurface: [0, 0, 0, 0] },
+      stats: { shotsFired: 0, shotsHit: 0, bites: 0, biteHits: 0, leaps: 0, rejectedInputs: 0, inputsDropped: 0, ticksBySurface: [0, 0, 0, 0], structureDamage: 0, healed: 0, heals: 0, builds: 0, buildRejects: 0 },
       lastShot: { seq: 0, result: 'ok', hit: false, rewindMs: 0 },
+      commanding: false,
+      order: null,
+      msgWindow: [],
     };
     this.players.set(id, p);
     return p;
   }
 
   removePlayer(id: string): void {
+    if (this.commanderId === id) this.exitCommand(id, 'left');
     this.players.delete(id);
   }
 
@@ -180,14 +249,21 @@ export class Simulation {
     return n;
   }
 
-  /** Simple team-size guard: at most ceil(maxPlayers/2) humans per class. */
+  /** Humans on a side (counting queued class changes). */
+  factionCount(f: Faction, exceptId?: string): number {
+    let n = 0;
+    for (const p of this.players.values()) if (!p.isDummy && p.id !== exceptId && factionOf(p.pendingCls ?? p.cls) === f) n++;
+    return n;
+  }
+
+  /** Simple team-size guard (D-21, extended for the Weaver in D-31): at most ceil(maxPlayers/2) humans per side. */
   canTakeClass(id: string, cls: PlayerClass): boolean {
-    return this.classCount(cls, id) < Math.ceil(MATCH.maxPlayers / 2);
+    return this.factionCount(factionOf(cls), id) < Math.ceil(MATCH.maxPlayers / 2);
   }
 
   setClass(id: string, cls: PlayerClass): boolean {
     const p = this.players.get(id);
-    if (!p || (cls !== PlayerClass.Marine && cls !== PlayerClass.Ripper)) return false;
+    if (!p || !isPlayerClass(cls)) return false;
     if (!p.isDummy && !this.canTakeClass(id, cls)) return false;
     if (this.phase === 'warmup') {
       this.spawnPlayer(p, cls, false);
@@ -204,8 +280,13 @@ export class Simulation {
   startMatch(): void {
     this.phase = 'playing';
     this.matchStartTick = this.tick;
+    this.econ = createEconomy();
+    this.commanderId = '';
+    this.teamPing = null;
     for (const p of this.players.values()) {
       p.kills = p.deaths = p.damage = 0;
+      p.commanding = false;
+      p.order = null;
       this.spawnPlayer(p, p.pendingCls ?? p.cls, true);
     }
     this.events.push({ ev: { t: 'phase', phase: 'playing' } });
@@ -218,6 +299,12 @@ export class Simulation {
   }
 
   private pickSpawn(cls: PlayerClass): SpawnPoint {
+    const sp = this.pickSpawnPoint(cls);
+    // Bloom spawn points are Ripper sphere centres; the Weaver is a walker whose origin is its feet
+    return cls === PlayerClass.Weaver ? { ...sp, y: 0 } : sp;
+  }
+
+  private pickSpawnPoint(cls: PlayerClass): SpawnPoint {
     const list = cls === PlayerClass.Marine ? MARINE_SPAWNS : BLOOM_SPAWNS;
     const enemies = [...this.players.values()].filter((p) => p.alive && factionOf(p.cls) !== factionOf(cls));
     if (enemies.length === 0) {
@@ -240,12 +327,13 @@ export class Simulation {
   }
 
   spawnPlayer(p: ServerPlayer, cls: PlayerClass, alive: boolean): void {
+    if (p.commanding) this.exitCommand(p.id, 'died');
     const sp = this.pickSpawn(cls);
     p.cls = cls;
     p.pendingCls = null;
     p.sim = createPlayerSim(cls, sp.x, sp.y, sp.z, sp.yaw, p.sim.seed);
-    p.health = cls === PlayerClass.Marine ? MARINE.health : RIPPER.health;
-    p.armour = cls === PlayerClass.Marine ? MARINE.armour : RIPPER.armour;
+    p.health = maxHealthOf(cls);
+    p.armour = maxArmourOf(cls);
     p.alive = alive;
     p.epoch = (p.epoch + 1) & 0xffff;
     p.queue.length = 0;
@@ -312,6 +400,7 @@ export class Simulation {
 
   step(): void {
     this.recordHistory();
+    if (this.phase === 'playing') this.stepStrategy();
     for (const p of this.players.values()) {
       p.credit = Math.min(CREDIT_CAP, p.credit + 1);
       if (!p.alive && p.respawnAtTick > 0 && this.tick >= p.respawnAtTick && this.phase === 'playing') {
@@ -332,6 +421,7 @@ export class Simulation {
   private processFrame(p: ServerPlayer, f: InputFrame, arrivalTick: number): void {
     p.lastProcessedSeq = f.seq;
     if (!p.alive) return;
+    if (p.commanding) f = commanderFrame(f); // body stays at the console (the client predicts the same frame)
     const res = this.res;
     stepPlayer(p.sim, f, this.world, res);
     p.stats.ticksBySurface[p.sim.surface]++;
@@ -355,6 +445,7 @@ export class Simulation {
       this.events.push({ ev: { t: 'leap', id: p.id } });
     }
     if (res.reloadStarted) this.events.push({ ev: { t: 'reload', id: p.id } });
+    if (res.healPulse) this.resolveHealPulse(p);
     if (f.primary && p.protectedUntilTick > this.tick) p.protectedUntilTick = 0; // attack input cancels spawn protection
 
     const ageTicks = Math.max(0, this.tick - arrivalTick);
@@ -423,11 +514,23 @@ export class Simulation {
         victim = t;
       }
     }
-    const endT = victim ? bestT : maxT;
+    // structures stop rounds whichever side owns them; only enemy structures take damage (not lag-compensated: they never move)
+    let struct: Structure | null = null;
+    for (const st of this.econ.structures) {
+      const b = structureHurtBox(st);
+      const t = rayAabb(origin, dir, b.min, b.max, Math.min(maxT, bestT));
+      if (t !== null && t < bestT) {
+        bestT = t;
+        struct = st;
+        victim = null;
+      }
+    }
+    const endT = victim || struct ? bestT : maxT;
     const end = { x: origin.x + dir.x * endT, y: origin.y + dir.y * endT, z: origin.z + dir.z * endT };
     this.events.push({
-      ev: { t: 'fire', shooter: shooter.id, ox: origin.x, oy: origin.y, oz: origin.z, dx: dir.x, dy: dir.y, dz: dir.z, ex: end.x, ey: end.y, ez: end.z, hit: victim ? 2 : wall ? 1 : 0, tick: this.tick },
+      ev: { t: 'fire', shooter: shooter.id, ox: origin.x, oy: origin.y, oz: origin.z, dx: dir.x, dy: dir.y, dz: dir.z, ex: end.x, ey: end.y, ez: end.z, hit: victim ? 2 : struct ? 3 : wall ? 1 : 0, tick: this.tick },
     });
+    if (struct && struct.faction !== factionOf(shooter.cls)) this.damageStructureBy(struct, shooter, RIFLE.damage, 'rifle', end);
     shooter.lastShot = { seq: f.seq, result: 'ok', hit: !!victim, rewindMs };
     this.telemetry.debug('shot', { playerId: shooter.id, shotAccepted: true, hit: !!victim, rewindMs, serverTick: this.tick });
     this.events.push({ ev: { t: 'shot-result', id: shooter.id, seq: f.seq, result: 'ok', hit: !!victim, rewindMs }, to: shooter.id });
@@ -439,11 +542,18 @@ export class Simulation {
   }
 
   private resolveBite(attacker: ServerPlayer, f: InputFrame, rewindMs: number): void {
+    // Ripper bite (VS01) or Weaver melee (VS02): same swept-sphere test, per-class numbers
+    const weaver = attacker.cls === PlayerClass.Weaver;
+    const reach = weaver ? WEAVER.meleeReach : BITE.reach;
+    const sweep = weaver ? WEAVER.meleeSweepRadius : BITE.sweepRadius;
+    const halfArc = weaver ? MELEE_HALF_ARC : BITE_HALF_ARC;
+    const damage = weaver ? WEAVER.meleeDamage : BITE.damage;
+    const kind: DamageKind = weaver ? 'melee' : 'bite';
     attacker.stats.bites++;
-    this.telemetry.inc('bite.attempts');
+    this.telemetry.inc(weaver ? 'melee.attempts' : 'bite.attempts');
     const o = biteOrigin(attacker.sim);
     const d = viewDir(attacker.sim.yaw, attacker.sim.pitch);
-    const segLen = Math.max(0.1, BITE.reach - BITE.sweepRadius);
+    const segLen = Math.max(0.1, reach - sweep);
     const end: Vec3 = { x: o.x + d.x * segLen, y: o.y + d.y * segLen, z: o.z + d.z * segLen };
     const dh = normalize({ x: d.x, y: 0, z: d.z }, { x: 0, y: 0, z: -1 });
     let best: { t: ServerPlayer; d: number; point: Vec3 } | null = null;
@@ -452,30 +562,51 @@ export class Simulation {
       const cap = this.rewoundCapsule(t, rewindMs);
       if (!cap) continue;
       const dd = Math.sqrt(segSegDistSq(o, end, cap.a, cap.b));
-      if (dd > BITE.sweepRadius + cap.r) continue;
+      if (dd > sweep + cap.r) continue;
       const near = closestOnSegment(cap.a, cap.b, o);
       const vx = near.x - o.x;
       const vz = near.z - o.z;
       const hl = Math.hypot(vx, vz);
       if (hl > 0.35) {
         const ang = Math.acos(clamp((vx * dh.x + vz * dh.z) / hl, -1, 1));
-        if (ang > BITE_HALF_ARC) continue;
+        if (ang > halfArc) continue;
       }
       if (!this.world.lineOfSight(o, near)) continue;
       if (!best || dd < best.d) best = { t, d: dd, point: near };
     }
-    this.events.push({ ev: { t: 'bite', shooter: attacker.id, ox: o.x, oy: o.y, oz: o.z, dx: d.x, dy: d.y, dz: d.z, hit: !!best } });
-    attacker.lastShot = { seq: f.seq, result: 'ok', hit: !!best, rewindMs };
-    this.telemetry.debug('bite', { playerId: attacker.id, biteAccepted: true, hit: !!best, rewindMs, serverTick: this.tick });
-    this.events.push({ ev: { t: 'shot-result', id: attacker.id, seq: f.seq, result: 'ok', hit: !!best, rewindMs }, to: attacker.id });
+    // no player in the sweep: an enemy structure within reach takes the swing
+    let struct: { s: Structure; point: Vec3 } | null = null;
+    if (!best) {
+      for (const st of this.econ.structures) {
+        if (st.faction === factionOf(attacker.cls)) continue;
+        const b = structureHurtBox(st);
+        for (let i = 0; i <= 4; i++) {
+          const k = i / 4;
+          const q: Vec3 = { x: o.x + (end.x - o.x) * k, y: o.y + (end.y - o.y) * k, z: o.z + (end.z - o.z) * k };
+          const c = closestOnAabb(b.min, b.max, q);
+          if (dist(c, q) <= sweep && this.world.lineOfSight(o, c)) {
+            struct = { s: st, point: c };
+            break;
+          }
+        }
+        if (struct) break;
+      }
+    }
+    const hit = !!best || !!struct;
+    this.events.push({ ev: { t: 'bite', shooter: attacker.id, ox: o.x, oy: o.y, oz: o.z, dx: d.x, dy: d.y, dz: d.z, hit } });
+    attacker.lastShot = { seq: f.seq, result: 'ok', hit, rewindMs };
+    this.telemetry.debug('bite', { playerId: attacker.id, biteAccepted: true, hit, rewindMs, serverTick: this.tick });
+    this.events.push({ ev: { t: 'shot-result', id: attacker.id, seq: f.seq, result: 'ok', hit, rewindMs }, to: attacker.id });
     if (best) {
       attacker.stats.biteHits++;
-      this.telemetry.inc('bite.hits');
-      this.applyDamage(best.t, attacker, BITE.damage, 'bite', best.point);
+      this.telemetry.inc(weaver ? 'melee.hits' : 'bite.hits');
+      this.applyDamage(best.t, attacker, damage, kind, best.point);
+    } else if (struct) {
+      this.damageStructureBy(struct.s, attacker, damage, kind, struct.point);
     }
   }
 
-  applyDamage(target: ServerPlayer, attacker: ServerPlayer, dmg: number, kind: 'rifle' | 'bite', at: Vec3): number {
+  applyDamage(target: ServerPlayer, attacker: ServerPlayer, dmg: number, kind: DamageKind, at: Vec3): number {
     if (!target.alive) return 0;
     if (target.protectedUntilTick > this.tick) return 0;
     if (target.firstDamagedAtTick === 0) target.firstDamagedAtTick = this.tick;
@@ -490,8 +621,9 @@ export class Simulation {
     return armourDmg + healthDmg;
   }
 
-  private kill(victim: ServerPlayer, killer: ServerPlayer | null, kind: 'rifle' | 'bite' | 'reset'): void {
+  private kill(victim: ServerPlayer, killer: ServerPlayer | null, kind: DamageKind | 'reset'): void {
     victim.alive = false;
+    if (victim.commanding) this.exitCommand(victim.id, 'died');
     victim.deaths++;
     if (killer && killer.id !== victim.id) killer.kills++;
     victim.respawnAtTick = this.tick + secToTicks(MATCH.respawnSec);
@@ -519,6 +651,217 @@ export class Simulation {
     });
   }
 
+  // ---- VS02 strategy layer (all server authority; D-26) -----------------------------------------
+
+  /** Per tick while playing: construction, income, order expiry, node-control telemetry. */
+  private stepStrategy(): void {
+    const done = stepEconomy(this.econ, this.econOut).completed;
+    for (const st of done) {
+      this.telemetry.inc(`structure.completed.${st.type}`);
+      this.telemetry.info('structure-completed', { matchId: this.matchId, roomId: this.roomId, structure: st.type, structureId: st.id, serverTick: this.tick });
+      this.events.push({ ev: { t: 'structure', kind: 'completed', id: st.id, type: st.type, faction: st.faction, by: st.builderId, x: st.x, y: st.y, z: st.z } });
+    }
+    for (const n of RESOURCE_NODES) {
+      const c = nodeController(this.econ, n.id);
+      this.telemetry.inc(`node.ticks.${c === null ? 'none' : c === Faction.Expedition ? 'expedition' : 'bloom'}`);
+    }
+    if (this.teamPing && this.tick >= this.teamPing.untilTick) this.teamPing = null;
+    for (const p of this.players.values()) if (p.order && this.tick >= p.order.untilTick) p.order = null;
+  }
+
+  /** Command / build / order messages are rate limited per player (they bypass the input queue). */
+  private allowMsg(p: ServerPlayer): boolean {
+    const now = this.timeMs;
+    p.msgWindow = p.msgWindow.filter((t) => now - t < 1000);
+    if (p.msgWindow.length >= COMMAND.msgPerSec) {
+      this.telemetry.inc('command.reject.flood');
+      return false;
+    }
+    p.msgWindow.push(now);
+    return true;
+  }
+
+  /** A Marine at the Command Core console enters Commander mode (bible section 33). */
+  enterCommand(id: string): CommandRejectReason | null {
+    const p = this.players.get(id);
+    if (!p || !this.allowMsg(p)) return null;
+    let reason: CommandRejectReason | null = null;
+    if (this.phase !== 'playing') reason = 'wrong-phase';
+    else if (!p.alive) reason = 'dead';
+    else if (p.cls !== PlayerClass.Marine) reason = 'wrong-role';
+    else if (p.commanding) return null;
+    else if (this.commanderId && this.players.get(this.commanderId)?.commanding) reason = 'occupied';
+    else if (hdist(p.sim.px, p.sim.pz, COMMAND_CONSOLE.standX, COMMAND_CONSOLE.standZ) > COMMAND.consoleReach) reason = 'out-of-reach';
+    if (reason) {
+      this.telemetry.inc(`command.reject.${reason}`);
+      this.events.push({ ev: { t: 'command', id, on: false, reason }, to: id });
+      return reason;
+    }
+    // the body stays at the console: snap it onto the stand point (a server-side teleport: new epoch)
+    const s = p.sim;
+    s.px = COMMAND_CONSOLE.standX;
+    s.pz = COMMAND_CONSOLE.standZ;
+    s.vx = s.vy = s.vz = 0;
+    s.yaw = COMMAND_CONSOLE.yaw;
+    s.pitch = 0;
+    s.sprinting = 0;
+    p.epoch = (p.epoch + 1) & 0xffff;
+    p.queue.length = 0;
+    p.lastProcessedSeq = p.highestSeq;
+    p.commanding = true;
+    p.order = null;
+    this.commanderId = id;
+    this.telemetry.inc('command.enter');
+    this.telemetry.info('commander-enter', { matchId: this.matchId, roomId: this.roomId, playerId: id, serverTick: this.tick });
+    this.events.push({ ev: { t: 'command', id, on: true, reason: '' } });
+    return null;
+  }
+
+  exitCommand(id: string, reason: 'left' | 'died' | '' = ''): void {
+    const p = this.players.get(id);
+    if (p) p.commanding = false;
+    if (this.commanderId !== id) return;
+    this.commanderId = '';
+    this.telemetry.inc('command.exit');
+    this.events.push({ ev: { t: 'command', id, on: false, reason } });
+  }
+
+  /** Bible section 33 BuildRequest. Commander -> Extractor, Weaver -> Harvester. Returns the reject reason or null. */
+  requestBuild(id: string, raw: unknown): BuildRejectReason | null {
+    const p = this.players.get(id);
+    if (!p || !this.allowMsg(p)) return null;
+    const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    const req: BuildRequest = {
+      requestId: typeof r.requestId === 'number' && Number.isInteger(r.requestId) ? r.requestId : -1,
+      structure: isStructureType(r.structure) ? r.structure : ('' as never),
+      resourceNodeId: typeof r.resourceNodeId === 'string' ? r.resourceNodeId.slice(0, 32) : '',
+    };
+    let reason: BuildRejectReason | null = null;
+    if (req.requestId < 0 || !isStructureType(req.structure)) reason = 'malformed';
+    else if (this.phase !== 'playing') reason = 'wrong-phase';
+    else if (req.structure === 'extractor' && !(p.commanding && this.commanderId === id)) reason = 'wrong-role';
+    else if (req.structure === 'harvester' && p.cls !== PlayerClass.Weaver) reason = 'wrong-role';
+    else if (!p.alive) reason = 'dead';
+    else reason = validateBuild(this.econ, req, this.phase);
+    if (!reason && req.structure === 'harvester') {
+      const n = findNode(req.resourceNodeId)!;
+      if (hdist(p.sim.px, p.sim.pz, n.x, n.z) > WEAVER.buildReach) reason = 'out-of-reach';
+    }
+    const structure = isStructureType(req.structure) ? req.structure : 'extractor';
+    if (reason) {
+      p.stats.buildRejects++;
+      this.telemetry.inc(`build.reject.${reason}`);
+      this.telemetry.debug('build-rejected', { playerId: id, structure, buildRejectReason: reason, serverTick: this.tick });
+      this.events.push({ ev: { t: 'build-result', requestId: req.requestId, structure, ok: false, reason, structureId: '' }, to: id });
+      return reason;
+    }
+    const st = placeStructure(this.econ, req.structure, req.resourceNodeId, id);
+    p.stats.builds++;
+    this.telemetry.inc(`structure.placed.${st.type}`);
+    this.telemetry.inc(`economy.spent.${st.faction === Faction.Expedition ? 'expedition' : 'bloom'}`, STRUCTURE_COST[st.type]);
+    this.telemetry.info('structure-placed', { matchId: this.matchId, roomId: this.roomId, playerId: id, structure: st.type, structureId: st.id, serverTick: this.tick });
+    this.events.push({ ev: { t: 'build-result', requestId: req.requestId, structure: st.type, ok: true, reason: '', structureId: st.id }, to: id });
+    this.events.push({ ev: { t: 'structure', kind: 'placed', id: st.id, type: st.type, faction: st.faction, by: id, x: st.x, y: st.y, z: st.z } });
+    return null;
+  }
+
+  /** Commander waypoint (selected Marines) or team ping (no targets). */
+  order(id: string, raw: unknown): boolean {
+    const p = this.players.get(id);
+    if (!p || !this.allowMsg(p) || !p.commanding || this.commanderId !== id || this.phase !== 'playing') {
+      this.telemetry.inc('order.reject');
+      return false;
+    }
+    const m = (raw && typeof raw === 'object' ? raw : {}) as Partial<OrderMsg>;
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : NaN);
+    const x = num(m.x);
+    const y = num(m.y);
+    const z = num(m.z);
+    if (!(x >= MAP_BOUNDS.minX && x <= MAP_BOUNDS.maxX && z >= MAP_BOUNDS.minZ && z <= MAP_BOUNDS.maxZ && y >= -1 && y <= 8)) {
+      this.telemetry.inc('order.reject');
+      return false;
+    }
+    const kind = m.kind === 'move' ? 'move' : 'ping';
+    const ids = Array.isArray(m.targets) ? m.targets.filter((t): t is string => typeof t === 'string').slice(0, 8) : [];
+    const targets = ids.filter((t) => {
+      const q = this.players.get(t);
+      return !!q && q.id !== id && q.cls === PlayerClass.Marine;
+    });
+    const o: Order = { kind, x, y, z, untilTick: this.tick + ORDER_TTL_TICKS };
+    if (targets.length === 0) this.teamPing = o;
+    for (const t of targets) this.players.get(t)!.order = { ...o };
+    this.telemetry.inc(`order.${kind}`);
+    this.events.push({ ev: { t: 'order', by: id, kind, targets, x, y, z } });
+    return true;
+  }
+
+  private damageStructureBy(st: Structure, attacker: ServerPlayer, dmg: number, kind: DamageKind, at: Vec3): void {
+    const r = damageStructure(this.econ, st, dmg);
+    if (r.dealt <= 0) return;
+    attacker.stats.structureDamage += r.dealt;
+    this.telemetry.inc(`structure.damage.${st.type}`, r.dealt);
+    this.events.push({ ev: { t: 'structure-hit', id: st.id, attacker: attacker.id, dmg: r.dealt, px: at.x, py: at.y, pz: at.z, kind, destroyed: r.destroyed } });
+    if (r.destroyed) {
+      this.telemetry.inc(`structure.destroyed.${st.type}`);
+      this.telemetry.info('structure-destroyed', { matchId: this.matchId, roomId: this.roomId, playerId: attacker.id, structure: st.type, structureId: st.id, kind, serverTick: this.tick });
+      this.events.push({ ev: { t: 'structure', kind: 'destroyed', id: st.id, type: st.type, faction: st.faction, by: attacker.id, x: st.x, y: st.y, z: st.z } });
+    }
+  }
+
+  /** Weaver heal pulse: Bloom players and Bloom structures within the radius. */
+  private resolveHealPulse(p: ServerPlayer): void {
+    const f = factionOf(p.cls);
+    let players = 0;
+    let structures = 0;
+    let total = 0;
+    for (const q of this.players.values()) {
+      if (!q.alive || !q.connected || factionOf(q.cls) !== f) continue;
+      if (dist({ x: q.sim.px, y: q.sim.py, z: q.sim.pz }, { x: p.sim.px, y: p.sim.py, z: p.sim.pz }) > WEAVER.healPulseRadius) continue;
+      const before = q.health;
+      q.health = Math.min(maxHealthOf(q.cls), q.health + WEAVER.healPulseAmount);
+      if (q.health > before) {
+        players++;
+        total += q.health - before;
+      }
+    }
+    for (const st of this.econ.structures) {
+      if (st.faction !== f || hdist(st.x, st.z, p.sim.px, p.sim.pz) > WEAVER.healPulseRadius + STRUCTURE.hurtHalf) continue;
+      const h = healStructure(st, WEAVER.healPulseStructureAmount);
+      if (h > 0) {
+        structures++;
+        total += h;
+      }
+    }
+    p.stats.heals++;
+    p.stats.healed += total;
+    this.telemetry.inc('weaver.heal.pulses');
+    this.telemetry.inc('weaver.heal.amount', total);
+    this.events.push({ ev: { t: 'heal', id: p.id, x: p.sim.px, y: p.sim.py, z: p.sim.pz, players, structures } });
+  }
+
+  /** Live economy snapshot (dev overlay + /debug/telemetry). */
+  economySnapshot(): Record<string, unknown> {
+    return {
+      phase: this.phase,
+      serverTick: this.tick,
+      commanderId: this.commanderId,
+      resources: { expedition: +this.econ.teams[0].resources.toFixed(2), bloom: +this.econ.teams[1].resources.toFixed(2) },
+      incomePerSec: { expedition: incomePerSec(this.econ, Faction.Expedition), bloom: incomePerSec(this.econ, Faction.Bloom) },
+      earned: { expedition: +this.econ.teams[0].earned.toFixed(2), bloom: +this.econ.teams[1].earned.toFixed(2) },
+      spent: { expedition: this.econ.teams[0].spent, bloom: this.econ.teams[1].spent },
+      structures: this.econ.structures.map((st) => ({
+        id: st.id,
+        type: st.type,
+        label: STRUCTURE_LABEL[st.type],
+        hp: Math.round(st.hp),
+        maxHp: st.maxHp,
+        state: st.state === StructureState.Active ? 'active' : 'building',
+        progress: +Math.min(1, st.buildTicks / BUILD_TICKS).toFixed(2),
+      })),
+      nodes: RESOURCE_NODES.map((n) => ({ id: n.id, controller: ['expedition', 'bloom'][nodeController(this.econ, n.id) ?? -1] ?? 'none' })),
+    };
+  }
+
   // ---- dev tools (host only, rooms created with dev=true) --------------------------------------
 
   devAction(id: string, a: DevAction): void {
@@ -528,7 +871,8 @@ export class Simulation {
       case 'teleport': {
         const tp = DEV_TELEPORTS[a.room];
         if (!tp) return;
-        const sp = p.cls === PlayerClass.Marine ? tp.marine : tp.ripper;
+        if (p.commanding) this.exitCommand(p.id);
+        const sp = p.cls === PlayerClass.Ripper ? tp.ripper : tp.marine;
         const s = p.sim;
         s.px = sp.x;
         s.py = sp.y;
@@ -546,7 +890,7 @@ export class Simulation {
         break;
       }
       case 'switchClass': {
-        const cls = a.cls === 1 ? PlayerClass.Ripper : PlayerClass.Marine;
+        const cls = isPlayerClass(a.cls) ? a.cls : PlayerClass.Marine;
         this.spawnPlayer(p, cls, this.phase === 'playing');
         break;
       }
@@ -557,19 +901,19 @@ export class Simulation {
           s.reserve = RIFLE.reserve;
           s.reloadTicks = 0;
           p.armour = MARINE.armour;
-        } else s.energy = RIPPER.maxEnergy;
-        p.health = p.cls === PlayerClass.Marine ? MARINE.health : RIPPER.health;
+        } else s.energy = p.cls === PlayerClass.Weaver ? WEAVER.maxEnergy : RIPPER.maxEnergy;
+        p.health = maxHealthOf(p.cls);
         break;
       }
       case 'spawnDummy': {
         if ([...this.players.values()].filter((x) => x.isDummy).length >= 4) return;
         const did = `dummy-${++this.dummyCounter}`;
-        const cls = a.cls === 1 ? PlayerClass.Ripper : PlayerClass.Marine;
+        const cls = isPlayerClass(a.cls) ? a.cls : PlayerClass.Marine;
         const d = this.addPlayer(did, `Dummy ${this.dummyCounter}`, cls, 90 + this.dummyCounter, true);
         d.alive = true;
         // park it in front of the requesting player on the floor if that is free, else at its faction spawn
         const f = viewDir(p.sim.yaw, 0);
-        const y = cls === PlayerClass.Marine ? p.sim.surface === SurfaceState.Ground && p.cls === PlayerClass.Marine ? p.sim.py : 0 : 0.29;
+        const y = cls !== PlayerClass.Ripper ? (p.sim.surface === SurfaceState.Ground && p.cls !== PlayerClass.Ripper ? p.sim.py : 0) : 0.29;
         if (p.sim.py < 0.5) {
           // furthest free spot in front of the requester (walls may be close to the spawn points)
           for (const dist of [4, 3.2, 2.6, 2.1, 1.7]) {
@@ -583,6 +927,11 @@ export class Simulation {
             }
           }
         }
+        break;
+      }
+      case 'grantResources': {
+        const amt = typeof a.amount === 'number' && Number.isFinite(a.amount) ? clamp(a.amount, 0, 1000) : 0;
+        for (const t of this.econ.teams) t.resources += amt;
         break;
       }
       case 'clearDummies':
@@ -608,3 +957,8 @@ export class Simulation {
   }
 }
 
+
+/** While commanding, the body stays at the console: every frame is simulated as "no input, facing the console". */
+export function commanderFrame(f: InputFrame): InputFrame {
+  return { ...f, moveX: 0, moveZ: 0, yaw: COMMAND_CONSOLE.yaw, pitch: 0, jump: false, sprint: false, primary: false, secondary: false, reload: false, interact: false };
+}

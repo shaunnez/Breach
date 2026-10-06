@@ -1,6 +1,10 @@
 import { PlayerClass, SurfaceState } from '../enums';
 import { MARINE, RIFLE, RIPPER, WEAVER } from '../balance';
 
+/** Per-class health / armour maxima (server rules + HUD). */
+export const maxHealthOf = (cls: PlayerClass): number => (cls === PlayerClass.Marine ? MARINE.health : cls === PlayerClass.Weaver ? WEAVER.health : RIPPER.health);
+export const maxArmourOf = (cls: PlayerClass): number => (cls === PlayerClass.Marine ? MARINE.armour : cls === PlayerClass.Weaver ? WEAVER.armour : RIPPER.armour);
+
 /**
  * The deterministic per-player simulation state. Everything needed to re-simulate an input frame
  * lives here and is replicated to the owning client so it can replay unacknowledged inputs.
